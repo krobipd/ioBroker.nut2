@@ -125,8 +125,11 @@ npm run check         # tsc --noEmit (Type-Check)
 ```
 
 **Ausschlüsse in den beiden format-Skripten** (Klasse 1 nach [[reference_prettier_vs_consistency_master]] —
-Dateien, die ein Werkzeug schreibt; ein Handformat wäre beim nächsten Lauf wieder weg; **nie** eine
-`.prettierignore`, die meldet der Prüfbot als veraltete Konfigurationsdatei, W0084/W5048):
+Dateien, deren FORMAT ein Werkzeug vorgibt, das Prettier nicht kennt; **nie** eine `.prettierignore`,
+die meldet der Prüfbot als veraltete Konfigurationsdatei, W0084/W5048). ⚠️ **„Wird oft neu
+geschrieben" ist KEIN Ausschlussgrund** (krobi 2026-09-07): eine gemeldete Datei wird formatiert,
+auch wenn sie morgen wieder anfällt — zwei Sekunden je Lauf sind billiger als ein blinder Fleck, der
+bleibt. Deshalb steht `.remember/` (Zustandsdateien des Remember-Plugins) NICHT mehr in der Liste:
 `build/` (esbuild-Ausgabe) · `io-package.json` (Release-Skript, `sync-iopackage-from-i18n.py` und der
 Konsistenz-Autofix schreiben aufgeklapptes JSON) · `.github/dependabot.yml` (Bot-Format, einfache
 Anführungszeichen, Flottenentscheid 2026-07-01).

@@ -444,6 +444,11 @@ const VALUE_I18N: Record<string, I18nKey> = {
  * Explanations for the NUT variables where the name alone leaves a user guessing. Deliberately
  * NOT one per variable: `device.serial` explains itself, and an invented sentence is worse than
  * none (fleet rule — `common.desc` stays empty where there is nothing to explain).
+ *
+ * Where the line runs is not decided here: every data point in the object inventory either has an
+ * entry in this table or is listed with its reason in `test/self-explaining.json`, and the fleet
+ * gate `check-object-inventory.py` refuses anything in between. A variable dropped from this table
+ * therefore has to gain an entry over there in the same commit.
  */
 const VAR_DESC_I18N: Record<string, I18nKey> = {
   "ambient.contacts.status": "descAmbientContactsStatus",
