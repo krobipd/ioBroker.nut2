@@ -20,6 +20,6 @@
     // `vitest.config.ts:test.globals=true`) need an explicit types entry.
     "types": ["vitest/globals", "node"]
   },
-  "include": ["src/**/*.ts"],
+  "include": ["src/**/*.ts", "test/**/*.ts"],
   "exclude": ["build/**", "node_modules/**"]
 }

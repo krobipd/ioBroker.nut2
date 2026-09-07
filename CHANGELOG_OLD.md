@@ -1,5 +1,12 @@
 # Older changes
 
+## 0.11.0 (2026-09-02)
+
+- New: a UPS added to or removed from the NUT server now appears or disappears at the next poll — no reconnect and no adapter restart needed for a changed server setup
+- Fixed: a write to the adapter's own reachable, status or notify states (script, REST API) no longer ends as a SET VAR error in the log; null or object values are rejected before they reach the server
+- Fixed: a failed TLS handshake no longer logs a misleading "Connection lost" warning next to the stop, and the notify trigger state echoes the cleaned event text instead of the raw write
+- Changed: ioBroker Admin 8.0.11 or newer is required, in line with the current ioBroker stable repository — older Admin installations must be updated before installing this version
+
 ## 0.10.0 (2026-09-01)
 
 - New: writable `notify` trigger state — upsmon (or any script) pushes events like ONBATT or SHUTDOWN for an instant refresh, and a matched event also lands on that UPS device (#14)

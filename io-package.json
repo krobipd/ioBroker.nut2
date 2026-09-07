@@ -1,9 +1,9 @@
 {
   "common": {
     "name": "nut2",
-    "version": "0.14.0",
+    "version": "0.15.0",
     "news": {
-      "NEXT": {
+      "0.15.0": {
         "en": "Most data points now carry a name in your language instead of English, phases and outlets are told apart again, and a reading of the wrong kind is no longer written into a data point",
         "de": "Die meisten Datenpunkte tragen jetzt einen Namen in deiner Sprache statt Englisch, Phasen und Steckdosen sind wieder unterscheidbar, und ein Wert der falschen Art landet nicht mehr im Datenpunkt",
         "ru": "Большинство точек данных теперь имеют название на вашем языке вместо английского, фазы и розетки снова различимы, а значение неверного типа больше не попадает в точку данных",

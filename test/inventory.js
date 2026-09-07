@@ -143,40 +143,6 @@ function createFakeNutServer() {
 
 const fakeServer = createFakeNutServer();
 let fakePort = 0;
-let credentialSecret = "";
-
-/**
- * Store a credential the way the controller expects it.
- *
- * `username`/`password` are `encryptedNative` (io-package.json), so js-controller DECRYPTS them
- * when it hands `adapter.config` over. A plaintext value written straight into the instance object
- * therefore reaches the adapter as XOR noise against the system secret — and whenever that noise
- * happens to contain a space, the credential guard (design #46) rightly refuses to send it and the
- * inventory silently loses the command buttons. The scheme is a symmetric XOR, so the same pass
- * that decrypts also encrypts.
- *
- * @param {string} value Plaintext credential
- * @returns {string} the value as the controller stores it
- */
-function encryptCredential(value) {
-  let out = "";
-  for (let i = 0; i < value.length; i++) {
-    out += String.fromCharCode(credentialSecret.charCodeAt(i % credentialSecret.length) ^ value.charCodeAt(i));
-  }
-  return out;
-}
-
-/**
- * Read the system secret the controller encrypts `encryptedNative` values with.
- *
- * @param {object} harness Test harness
- */
-async function readCredentialSecret(harness) {
-  const systemConfig = await harness.objects.getObjectAsync("system.config");
-  credentialSecret = (systemConfig && systemConfig.native && systemConfig.native.secret) || "";
-  assert.ok(credentialSecret, "system.config carries no secret — credentials cannot be stored");
-}
-
 /** Adapter-specific config the fixtures need: the fake NUT server and both safety gates open. */
 function fixtureNative() {
   return {
@@ -184,8 +150,16 @@ function fixtureNative() {
     port: fakePort,
     networkInterface: "0.0.0.0",
     pollInterval: 2,
-    username: encryptCredential("inventory"),
-    password: encryptCredential("inventory"),
+    // Plaintext on purpose: `username`/`password` are `encryptedNative` (io-package.json), and
+    // @iobroker/testing >= 6 encrypts exactly those fields itself in `changeAdapterConfig`
+    // (`encryptNativeChanges`). Under 5.x it did NOT — the plaintext went into the instance object
+    // untouched, js-controller decrypted it on start, and the adapter received XOR noise against
+    // the system secret. Whenever that noise held a space, the credential guard (design #46)
+    // refused to send it and the inventory silently lost every command button. Pre-encrypting here
+    // would now be encrypted a SECOND time; the version floor in package.json is what keeps this
+    // correct.
+    username: "inventory",
+    password: "inventory",
     useTls: false,
     tlsRejectUnauthorized: false,
     tlsCaFile: "",
@@ -239,7 +213,6 @@ tests.integration(ADAPTER_DIR, {
         this.timeout(120000);
         fakePort = await fakeServer.start();
         harness = getHarness();
-        await readCredentialSecret(harness);
         await harness.changeAdapterConfig(ADAPTER, { native: fixtureNative() });
         await harness.startAdapterAndWait();
         await feedFixtures(harness);
@@ -287,7 +260,6 @@ tests.integration(ADAPTER_DIR, {
           for (const [id, obj] of Object.entries(previous)) {
             await harness.objects.setObjectAsync(id, obj);
           }
-          await readCredentialSecret(harness);
           await harness.changeAdapterConfig(ADAPTER, { native: fixtureNative() });
           await harness.startAdapterAndWait();
           await feedFixtures(harness);

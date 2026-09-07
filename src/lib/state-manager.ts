@@ -1438,9 +1438,20 @@ export class StateManager {
    * `null` is neither (E1004). Measured on the first inventory run this gate ever did for nut2:
    * 15 findings, all of them from writing `null`.
    *
-   * So the whole object is read, the attributes are deleted from a copy, and it is written back
-   * with `setObject`. The user's recording (`common.custom`) travels along in that copy — it is
-   * theirs, and a repair of adapter-owned metadata must never cost it (design #31).
+   * So the whole object is read, the attributes are deleted from a copy, and the copy is put back
+   * through `delObject` → `setObjectNotExists` — the ioBroker-native full replace. `setObject`
+   * would do the same in one step but is on the checker's deprecated list (S5054), and an entry in
+   * the exception register is not a fix. What goes back is the REAL object minus exactly those
+   * keys, so type, role, name, native and the user's recording (`common.custom`) all travel along;
+   * a repair of adapter-owned metadata must never cost the user their charts (design #31).
+   *
+   * Two consequences of the delete, both handled here:
+   * - `delObject` on a leaf takes the VALUE with it. It is read first and written back afterwards
+   *   with `ack: true`, so the round trip is invisible in the tree and `onStateChange` — which
+   *   ignores acknowledged writes — does not mistake it for a command.
+   * - The pair is not atomic. If the second half fails the datapoint is gone until the next start,
+   *   which recreates it; for a repair that runs once per object per runtime that is acceptable,
+   *   and it is the trade the fleet already makes (govee-smart, hassemu, homeconnect).
    *
    * @param id State object id
    * @param fields The `common` attributes to remove
@@ -1458,13 +1469,13 @@ export class StateManager {
     for (const f of present) {
       delete common[f];
     }
-    await this.adapter.setObject(id, {
-      ...existing,
-      // The attributes are removed from a COPY of the real object, so what goes back is complete
-      // (type, role, name, native, and the user's `common.custom`) minus exactly those keys. The
-      // typings cannot express "this object minus a key", hence the cast.
-      common,
-    } as unknown as ioBroker.SettableObject);
+    const previous = await this.adapter.getStateAsync(id);
+    await this.adapter.delObjectAsync(id);
+    // The typings cannot express "this object minus a key", hence the cast.
+    await this.adapter.setObjectNotExistsAsync(id, { ...existing, common } as unknown as ioBroker.SettableObject);
+    if (previous && previous.val !== null && previous.val !== undefined) {
+      await this.adapter.setStateChangedAsync(id, { val: previous.val, ack: true });
+    }
   }
 
   /**

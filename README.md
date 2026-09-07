@@ -262,7 +262,7 @@ iobroker state set nut2.0.notify "$NOTIFYTYPE $UPSNAME"
     ### **WORK IN PROGRESS**
 -->
 
-### **WORK IN PROGRESS**
+### 0.15.0 (2026-09-07)
 
 - Fixed: a data point no longer holds a value of the wrong kind — a reading that stops matching the data point's type is discarded with one warning instead of being written into it
 - Fixed: a NUT server that is switched off or restarting no longer makes the instance look broken — the adapter names the server it cannot reach and keeps retrying
@@ -311,13 +311,6 @@ iobroker state set nut2.0.notify "$NOTIFYTYPE $UPSNAME"
 - Fixed: a value list the UPS no longer offers is really gone from a data point now, instead of keeping the dropped entry selectable forever
 - Fixed: renaming a data point during an update no longer costs the recording you attached to it — history and charts move over to the new name
 - Changed: data point names and descriptions belong to the adapter again and are restored on the next sync; your own names belong in 0_userdata
-
-### 0.11.0 (2026-09-02)
-
-- New: a UPS added to or removed from the NUT server now appears or disappears at the next poll — no reconnect and no adapter restart needed for a changed server setup
-- Fixed: a write to the adapter's own reachable, status or notify states (script, REST API) no longer ends as a SET VAR error in the log; null or object values are rejected before they reach the server
-- Fixed: a failed TLS handshake no longer logs a misleading "Connection lost" warning next to the stop, and the notify trigger state echoes the cleaned event text instead of the raw write
-- Changed: ioBroker Admin 8.0.11 or newer is required, in line with the current ioBroker stable repository — older Admin installations must be updated before installing this version
 
 [Older changelogs can be found there](CHANGELOG_OLD.md)
 

@@ -92,6 +92,7 @@ function createMockAdapter(): {
       return Promise.resolve();
     },
     getObjectAsync: (id: string) => Promise.resolve(objects.get(id) ?? null),
+    getStateAsync: (id: string) => Promise.resolve(states.get(id) ?? null),
     // The REPLACING write, as js-controller does it: the stored object becomes exactly what is
     // handed in. That is what makes removing a `common` attribute possible at all — extendObject
     // merges and would keep the key (with the value null, which the object checker rejects).
@@ -144,6 +145,13 @@ function createMockAdapter(): {
       for (const key of objects.keys()) {
         if (key === id || key.startsWith(`${id}.`)) {
           objects.delete(key);
+        }
+      }
+      // js-controller takes the VALUE of a leaf with the object. A mock that keeps it would hide
+      // exactly the loss that removeCommonFields has to compensate.
+      for (const key of [...states.keys()]) {
+        if (key === id || key.startsWith(`${id}.`)) {
+          states.delete(key);
         }
       }
       return Promise.resolve();
@@ -845,31 +853,42 @@ describe("StateManager", () => {
   });
 
   describe("clearing shrinkable fields", () => {
+    /**
+     * Count the clearing round trips on one id. The clearing is `delObject` → `setObjectNotExists`
+     * (the checker forbids `setObject`), so the delete is what marks it.
+     *
+     * @param adapter mock adapter
+     * @param adapter.delObjectAsync the delete the clearing goes through
+     * @param id state id to watch
+     */
+    function countClears(adapter: { delObjectAsync: unknown }, id: string): () => number {
+      let clears = 0;
+      const real = adapter.delObjectAsync as (...a: unknown[]) => Promise<void>;
+      adapter.delObjectAsync = (...args: unknown[]) => {
+        if (args[0] === id) {
+          clears++;
+        }
+        return real(...args);
+      };
+      return () => clears;
+    }
+
     it("writes NOTHING when there is no value list and no bounds to take away", async () => {
-      // Mutation R3: without the early return, every object gets a full setObject on first contact
-      // in a runtime — 566 broker round-trips that change not a single byte. The rule was covered
-      // before the mechanism changed from clearStatesBeforeWrite to removeCommonFields; this test
-      // is what carries it over.
+      // Mutation R3: without the early return, every object gets torn down and rebuilt on first
+      // contact in a runtime — 566 round trips that change not a single byte, and every one of
+      // them drops the datapoint for an instant.
       const { adapter, objects } = createMockAdapter();
       await new StateManager(adapter).updateVariables("ups0", [{ name: "device.mfr", value: "Eaton" }], new Set());
       const id = "ups0.device.mfr";
-      const before = objects.get(id);
-      expect(before?.common.states).toBeUndefined();
+      expect(objects.get(id)?.common.states).toBeUndefined();
 
-      let writes = 0;
-      const realSetObject = adapter.setObject;
-      adapter.setObject = (...args: unknown[]) => {
-        if (args[0] === id) {
-          writes++;
-        }
-        return (realSetObject as (...a: unknown[]) => Promise<void>)(...args);
-      };
+      const clears = countClears(adapter, id);
       // A SECOND manager = first contact with an EXISTING object, which is when the clearing runs.
       await new StateManager(adapter).updateVariables("ups0", [{ name: "device.mfr", value: "Eaton" }], new Set());
-      expect(writes, "removeCommonFields wrote although nothing had to be removed").toBe(0);
+      expect(clears(), "the object was torn down although nothing had to be removed").toBe(0);
     });
 
-    it("DOES write when a value list has to go", async () => {
+    it("DOES clear when a value list has to go", async () => {
       const { adapter, objects } = createMockAdapter();
       const id = "ups0.ups.beeper-status";
       await new StateManager(adapter).updateVariables(
@@ -879,20 +898,45 @@ describe("StateManager", () => {
       );
       expect(objects.get(id)?.common.states, "precondition: the datapoint carries a value list").toBeDefined();
 
-      let writes = 0;
-      const realSetObject = adapter.setObject;
-      adapter.setObject = (...args: unknown[]) => {
-        if (args[0] === id) {
-          writes++;
-        }
-        return (realSetObject as (...a: unknown[]) => Promise<void>)(...args);
-      };
+      const clears = countClears(adapter, id);
       await new StateManager(adapter).updateVariables(
         "ups0",
         [{ name: "ups.beeper.status", value: "enabled" }],
         new Set(["ups.beeper.status"]),
       );
-      expect(writes, "the shrinkable list was not cleared before the fresh write").toBeGreaterThan(0);
+      expect(clears(), "the shrinkable list was not cleared before the fresh write").toBeGreaterThan(0);
+    });
+
+    it("keeps the datapoint's VALUE across the clearing", async () => {
+      // `delObject` on a leaf takes the value with it. Without the capture-and-restore the reading
+      // would be blank until the next poll — and the mock deletes it exactly like js-controller,
+      // so this test really measures the compensation instead of a mock that never lost anything.
+      const { adapter, states } = createMockAdapter();
+      const id = "ups0.ups.beeper-status";
+      const vars = [{ name: "ups.beeper.status", value: "enabled" }];
+      const rw = new Set(["ups.beeper.status"]);
+      await new StateManager(adapter).updateVariables("ups0", vars, rw);
+      expect(states.get(id)?.val, "precondition: the datapoint carries a value").toBe("enabled");
+
+      await new StateManager(adapter).updateVariables("ups0", vars, rw);
+      expect(states.get(id)?.val, "the value was lost when the object was rebuilt").toBe("enabled");
+      expect(states.get(id)?.ack, "the restored value must be acknowledged, not a command").toBe(true);
+    });
+
+    it("keeps the user's recording across the clearing", async () => {
+      const { adapter, objects } = createMockAdapter();
+      const id = "ups0.ups.beeper-status";
+      const vars = [{ name: "ups.beeper.status", value: "enabled" }];
+      const rw = new Set(["ups.beeper.status"]);
+      await new StateManager(adapter).updateVariables("ups0", vars, rw);
+      const obj = objects.get(id);
+      assert(obj, "datapoint exists");
+      obj.common.custom = { "history.0": { enabled: true } };
+
+      await new StateManager(adapter).updateVariables("ups0", vars, rw);
+      expect(objects.get(id)?.common.custom, "the recording belongs to the user and must survive").toEqual({
+        "history.0": { enabled: true },
+      });
     });
   });
 

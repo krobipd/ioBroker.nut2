@@ -53,20 +53,9 @@
     "ambient.1.humidity.alarm": "enabled"
   },
   "enum": {
-    "outlet.1.status": [
-      "on",
-      "off"
-    ],
-    "ambient.1.humidity.alarm": [
-      "enabled",
-      "disabled"
-    ]
+    "outlet.1.status": ["on", "off"],
+    "ambient.1.humidity.alarm": ["enabled", "disabled"]
   },
   "range": {},
-  "cmd": [
-    "outlet.1.load.off",
-    "outlet.1.load.on",
-    "outlet.1.load.cycle",
-    "beeper.mute"
-  ]
+  "cmd": ["outlet.1.load.off", "outlet.1.load.on", "outlet.1.load.cycle", "beeper.mute"]
 }
