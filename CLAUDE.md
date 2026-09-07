@@ -129,5 +129,4 @@ Dateien, die ein Werkzeug schreibt; ein Handformat wäre beim nächsten Lauf wie
 `.prettierignore`, die meldet der Prüfbot als veraltete Konfigurationsdatei, W0084/W5048):
 `build/` (esbuild-Ausgabe) · `io-package.json` (Release-Skript, `sync-iopackage-from-i18n.py` und der
 Konsistenz-Autofix schreiben aufgeklapptes JSON) · `.github/dependabot.yml` (Bot-Format, einfache
-Anführungszeichen, Flottenentscheid 2026-07-01) · `.remember/` (Zustandsdateien des Sitzungs-Gedächtnisses,
-einzeiliges JSON, git-ignoriert).
+Anführungszeichen, Flottenentscheid 2026-07-01).
