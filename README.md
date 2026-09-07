@@ -185,18 +185,12 @@ nut2.0.
 
 ## Instant updates from upsmon (notify trigger)
 
-The adapter polls the NUT server on a fixed interval. NUT itself has no server push — but `upsmon`, NUT's own monitoring client, detects events (power failure, low battery, forced shutdown) and can run a program via `NOTIFYCMD` the moment they happen. Point that program at the writable trigger state `nut2.0.notify` and the adapter refreshes immediately instead of waiting for the next poll:
+NUT has no server push, so the adapter polls on a fixed interval. `upsmon` — NUT's own monitoring client — sees events the moment they happen and can run a command via `NOTIFYCMD`. Point it at the writable state `nut2.0.notify` and the adapter refreshes at once.
 
-- **Any write** to `nut2.0.notify` triggers an immediate poll of all UPS devices — writing an empty value is simply a manual refresh.
-- The recommended value format is `$NOTIFYTYPE $UPSNAME` (both provided by upsmon). The event type stays in the trigger state; when the UPS name matches a discovered UPS it is also written to that device's `{ups_name}.info.notify`, so an automation can react per UPS (e.g. run a script on `SHUTDOWN`).
-- The event is recorded and acknowledged **before** the poll starts, and the trigger works even while the NUT server is unreachable — a `SHUTDOWN` event still arrives in ioBroker when the NUT host dies moments later.
-- The UPS may be referenced by its real NUT name or by the object ID shown in ioBroker; the `@host` part upsmon appends to `$UPSNAME` is stripped automatically.
-- Several events in quick succession collapse into a single follow-up poll; an unknown UPS name is logged once and falls back to refreshing everything.
-
-Example `upsmon.conf` on the NUT server (events only fire for `NOTIFYFLAG` lines carrying `EXEC`):
+In `upsmon.conf` on the NUT server (`curl` has to be installed there):
 
 ```
-NOTIFYCMD /etc/nut/iobroker-notify.sh
+NOTIFYCMD "curl http://<iobroker-host>:8082/set/nut2.0.notify?value=$NOTIFYTYPE%20$UPSNAME"
 NOTIFYFLAG ONLINE   SYSLOG+EXEC
 NOTIFYFLAG ONBATT   SYSLOG+EXEC
 NOTIFYFLAG LOWBATT  SYSLOG+EXEC
@@ -205,19 +199,9 @@ NOTIFYFLAG SHUTDOWN SYSLOG+EXEC
 NOTIFYFLAG REPLBATT SYSLOG+EXEC
 ```
 
-`/etc/nut/iobroker-notify.sh` (make it executable), using the ioBroker [simple-api](https://github.com/ioBroker/ioBroker.simple-api) adapter — this works from containers too, no ioBroker binaries needed on the NUT host:
+Only `NOTIFYFLAG` lines carrying `EXEC` run the command. The URL is served by the [simple-api](https://github.com/ioBroker/ioBroker.simple-api) adapter, so this works from a container as well — no ioBroker binaries on the NUT host, no extra script file.
 
-```sh
-#!/bin/sh
-curl -sG "http://<iobroker-host>:8082/set/nut2.0.notify" --data-urlencode "value=$NOTIFYTYPE $UPSNAME"
-```
-
-If ioBroker runs on the same host as the NUT server, the ioBroker CLI works as well:
-
-```sh
-#!/bin/sh
-iobroker state set nut2.0.notify "$NOTIFYTYPE $UPSNAME"
-```
+Any write to `nut2.0.notify` triggers an immediate poll of all UPS devices; an empty value is a plain refresh. With `$NOTIFYTYPE $UPSNAME` the event also lands on that UPS's `{ups_name}.info.notify`, so an automation can react per device. The event is recorded before the poll starts, which is why a `SHUTDOWN` still reaches ioBroker when the NUT host dies moments later.
 
 ---
 
