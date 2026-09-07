@@ -190,7 +190,7 @@ NUT has no server push, so the adapter polls on a fixed interval. `upsmon` — N
 In `upsmon.conf` on the NUT server (`curl` has to be installed there):
 
 ```
-NOTIFYCMD "curl http://<iobroker-host>:8082/set/nut2.0.notify?value=$NOTIFYTYPE%20$UPSNAME"
+NOTIFYCMD "curl http://<iobroker-host>:8093/v1/state/nut2.0.notify?value=$NOTIFYTYPE%20$UPSNAME"
 NOTIFYFLAG ONLINE   SYSLOG+EXEC
 NOTIFYFLAG ONBATT   SYSLOG+EXEC
 NOTIFYFLAG LOWBATT  SYSLOG+EXEC
@@ -199,7 +199,7 @@ NOTIFYFLAG SHUTDOWN SYSLOG+EXEC
 NOTIFYFLAG REPLBATT SYSLOG+EXEC
 ```
 
-Only `NOTIFYFLAG` lines carrying `EXEC` run the command. The URL is served by the [simple-api](https://github.com/ioBroker/ioBroker.simple-api) adapter, so this works from a container as well — no ioBroker binaries on the NUT host, no extra script file.
+Only `NOTIFYFLAG` lines carrying `EXEC` run the command. The URL is served by the [rest-api](https://github.com/ioBroker/ioBroker.rest-api) adapter, so this works from a container as well — no ioBroker binaries on the NUT host, no extra script file. On installations still running the older `simple-api` the path is `http://<iobroker-host>:8082/set/nut2.0.notify?value=…`; its own README points to `rest-api` as the replacement.
 
 Any write to `nut2.0.notify` triggers an immediate poll of all UPS devices; an empty value is a plain refresh. With `$NOTIFYTYPE $UPSNAME` the event also lands on that UPS's `{ups_name}.info.notify`, so an automation can react per device. The event is recorded before the poll starts, which is why a `SHUTDOWN` still reaches ioBroker when the NUT host dies moments later.
 
