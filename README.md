@@ -246,6 +246,11 @@ Any write to `nut2.0.notify` triggers an immediate poll of all UPS devices; an e
     ### **WORK IN PROGRESS**
 -->
 
+### **WORK IN PROGRESS**
+
+- Added: ten more UPS data points explain themselves — the battery date, the UPS's own clock, the three driver versions, the UPS identifier, the UPS type and the USB vendor/product IDs
+- Fixed: the battery maintenance date is the date of the NEXT change or service, not of the last one — name and explanation said the opposite in all eleven languages
+
 ### 0.15.0 (2026-09-07)
 
 - Fixed: a data point no longer holds a value of the wrong kind — a reading that stops matching the data point's type is discarded with one warning instead of being written into it

@@ -12082,6 +12082,19 @@
         "ru": "Дата батареи",
         "uk": "Дата батареї",
         "zh-cn": "电池日期"
+      },
+      "desc": {
+        "de": "Wann die Batterie eingebaut oder zuletzt gewechselt wurde — nicht das Herstellungsdatum",
+        "en": "When the battery was installed or last replaced — not when it was manufactured",
+        "es": "Cuándo se instaló o se cambió por última vez la batería — no cuándo se fabricó",
+        "fr": "Date de pose ou du dernier remplacement de la batterie — pas sa date de fabrication",
+        "it": "Quando la batteria è stata installata o sostituita l'ultima volta — non quando è stata prodotta",
+        "nl": "Wanneer de batterij is geplaatst of voor het laatst vervangen — niet wanneer die is gemaakt",
+        "pl": "Kiedy akumulator zamontowano lub ostatnio wymieniono — nie kiedy go wyprodukowano",
+        "pt": "Quando a bateria foi instalada ou substituída pela última vez — não quando foi fabricada",
+        "ru": "Когда батарея была установлена или последний раз заменена — не дата изготовления",
+        "uk": "Коли акумулятор встановили або востаннє замінили — не дата виготовлення",
+        "zh-cn": "电池安装或上次更换的时间——不是生产时间"
       }
     },
     "native": {},
@@ -12095,30 +12108,30 @@
       "read": true,
       "write": false,
       "name": {
-        "de": "Letzte Batteriewartung",
-        "en": "Last battery maintenance",
-        "es": "Último mantenimiento de la batería",
-        "fr": "Dernière maintenance de la batterie",
-        "it": "Ultima manutenzione della batteria",
-        "nl": "Laatste batterijonderhoud",
-        "pl": "Ostatnia konserwacja baterii",
-        "pt": "Última manutenção da bateria",
-        "ru": "Последнее обслуживание батареи",
-        "uk": "Останнє обслуговування батареї",
-        "zh-cn": "上次电池维护"
+        "de": "Nächste Batteriewartung",
+        "en": "Next battery maintenance",
+        "es": "Próximo mantenimiento de la batería",
+        "fr": "Prochaine maintenance de la batterie",
+        "it": "Prossima manutenzione della batteria",
+        "nl": "Volgend batterijonderhoud",
+        "pl": "Następna konserwacja akumulatora",
+        "pt": "Próxima manutenção da bateria",
+        "ru": "Следующее обслуживание батареи",
+        "uk": "Наступне обслуговування батареї",
+        "zh-cn": "下次电池维护"
       },
       "desc": {
-        "de": "Datum der letzten Batteriewartung, das die USV führt",
-        "en": "Date of the last battery maintenance recorded by the UPS",
-        "es": "Fecha del último mantenimiento de la batería registrado por el SAI",
-        "fr": "Date du dernier entretien de la batterie enregistré par l'onduleur",
-        "it": "Data dell'ultima manutenzione della batteria registrata dall'UPS",
-        "nl": "Datum van het laatste accuonderhoud volgens de UPS",
-        "pl": "Data ostatniej konserwacji akumulatora zapisana przez UPS",
-        "pt": "Data da última manutenção da bateria registada pelo UPS",
-        "ru": "Дата последнего обслуживания батареи по данным ИБП",
-        "uk": "Дата останнього обслуговування батареї за даними ДБЖ",
-        "zh-cn": "UPS 记录的上次电池维护日期"
+        "de": "Wann die Batterie das nächste Mal gewechselt oder gewartet werden muss",
+        "en": "When the battery is due for its next change or maintenance",
+        "es": "Cuándo toca el próximo cambio o mantenimiento de la batería",
+        "fr": "Quand la batterie doit être remplacée ou entretenue la prochaine fois",
+        "it": "Quando la batteria va sostituita o sottoposta alla prossima manutenzione",
+        "nl": "Wanneer de batterij aan de volgende vervanging of onderhoudsbeurt toe is",
+        "pl": "Kiedy przypada następna wymiana lub konserwacja akumulatora",
+        "pt": "Quando a bateria precisa da próxima substituição ou manutenção",
+        "ru": "Когда батарее предстоит следующая замена или обслуживание",
+        "uk": "Коли акумулятор потребує наступної заміни або обслуговування",
+        "zh-cn": "电池下次更换或维护的时间"
       }
     },
     "native": {},
@@ -15025,6 +15038,19 @@
         "ru": "Версия драйвера",
         "uk": "Версія драйвера",
         "zh-cn": "驱动版本"
+      },
+      "desc": {
+        "de": "Version der NUT-Ausgabe, aus der dieser Treiber stammt",
+        "en": "Version of the NUT release this driver was built from",
+        "es": "Versión de la publicación de NUT de la que procede este controlador",
+        "fr": "Version de la distribution NUT dont provient ce pilote",
+        "it": "Versione del rilascio NUT da cui proviene questo driver",
+        "nl": "Versie van de NUT-uitgave waaruit deze driver komt",
+        "pl": "Wersja wydania NUT, z którego pochodzi ten sterownik",
+        "pt": "Versão da distribuição NUT de onde vem este controlador",
+        "ru": "Версия выпуска NUT, из которого собран этот драйвер",
+        "uk": "Версія випуску NUT, з якого зібрано цей драйвер",
+        "zh-cn": "该驱动所属 NUT 发行版的版本"
       }
     },
     "native": {},
@@ -15049,6 +15075,19 @@
         "ru": "Версия данных драйвера",
         "uk": "Версія даних драйвера",
         "zh-cn": "驱动数据版本"
+      },
+      "desc": {
+        "de": "Version der Datenzuordnung, die ein generischer Treiber für dieses Modell nutzt",
+        "en": "Version of the data mapping a generic driver uses for this model",
+        "es": "Versión de la tabla de datos que un controlador genérico usa para este modelo",
+        "fr": "Version de la table de correspondance qu'un pilote générique utilise pour ce modèle",
+        "it": "Versione della mappatura dati che un driver generico usa per questo modello",
+        "nl": "Versie van de datatoewijzing die een generieke driver voor dit model gebruikt",
+        "pl": "Wersja mapowania danych, którego sterownik ogólny używa dla tego modelu",
+        "pt": "Versão do mapeamento de dados que um controlador genérico usa para este modelo",
+        "ru": "Версия таблицы данных, которую универсальный драйвер применяет к этой модели",
+        "uk": "Версія таблиці даних, яку універсальний драйвер застосовує до цієї моделі",
+        "zh-cn": "通用驱动为该型号所用数据映射表的版本"
       }
     },
     "native": {},
@@ -15073,6 +15112,19 @@
         "ru": "Внутренняя версия драйвера",
         "uk": "Внутрішня версія драйвера",
         "zh-cn": "驱动内部版本"
+      },
+      "desc": {
+        "de": "Eigene Version des Treibers, unabhängig von der NUT-Ausgabe gezählt",
+        "en": "The driver's own version, counted apart from the NUT release",
+        "es": "Versión propia del controlador, independiente de la publicación de NUT",
+        "fr": "Version propre du pilote, comptée indépendamment de la distribution NUT",
+        "it": "Versione propria del driver, contata separatamente dal rilascio NUT",
+        "nl": "Eigen versie van de driver, los van de NUT-uitgave geteld",
+        "pl": "Własna wersja sterownika, liczona niezależnie od wydania NUT",
+        "pt": "Versão própria do controlador, contada à parte da distribuição NUT",
+        "ru": "Собственная версия драйвера, независимая от выпуска NUT",
+        "uk": "Власна версія драйвера, незалежна від випуску NUT",
+        "zh-cn": "驱动自身的版本，与 NUT 发行版分开计数"
       }
     },
     "native": {},
@@ -19207,6 +19259,19 @@
         "ru": "Дата ИБП",
         "uk": "Дата ДБЖ",
         "zh-cn": "UPS 日期"
+      },
+      "desc": {
+        "de": "Datum der internen Uhr der USV — es kann vom Server abweichen",
+        "en": "Date of the UPS's own clock — it can differ from the server's",
+        "es": "Fecha del reloj interno del SAI — puede diferir de la del servidor",
+        "fr": "Date de l'horloge interne de l'onduleur — elle peut différer de celle du serveur",
+        "it": "Data dell'orologio interno dell'UPS — può differire da quella del server",
+        "nl": "Datum van de eigen klok van de UPS — kan afwijken van die van de server",
+        "pl": "Data zegara wewnętrznego UPS — może różnić się od daty serwera",
+        "pt": "Data do relógio interno do UPS — pode diferir da do servidor",
+        "ru": "Дата внутренних часов ИБП — может отличаться от серверной",
+        "uk": "Дата внутрішнього годинника ДБЖ — може відрізнятися від серверної",
+        "zh-cn": "UPS 自身时钟的日期——可能与服务器不同"
       }
     },
     "native": {},
@@ -19470,6 +19535,19 @@
         "ru": "Идентификатор ИБП",
         "uk": "Ідентифікатор ДБЖ",
         "zh-cn": "UPS 标识"
+      },
+      "desc": {
+        "de": "Name, den ein Administrator in der USV hinterlegt hat — nicht die Seriennummer",
+        "en": "Name an administrator stored in the UPS itself — not the serial number",
+        "es": "Nombre que un administrador guardó en el propio SAI — no el número de serie",
+        "fr": "Nom qu'un administrateur a enregistré dans l'onduleur — pas le numéro de série",
+        "it": "Nome che un amministratore ha salvato nell'UPS stesso — non il numero di serie",
+        "nl": "Naam die een beheerder in de UPS zelf heeft opgeslagen — niet het serienummer",
+        "pl": "Nazwa zapisana w samym UPS przez administratora — nie numer seryjny",
+        "pt": "Nome que um administrador guardou no próprio UPS — não o número de série",
+        "ru": "Имя, записанное администратором в самом ИБП — не серийный номер",
+        "uk": "Ім'я, яке адміністратор записав у самому ДБЖ — не серійний номер",
+        "zh-cn": "管理员写入 UPS 内部的名称——并非序列号"
       }
     },
     "native": {},
@@ -19755,6 +19833,19 @@
         "ru": "ID продукта",
         "uk": "ID продукту",
         "zh-cn": "产品ID"
+      },
+      "desc": {
+        "de": "USB-Produktkennung, die das Gerät meldet, hexadezimal",
+        "en": "USB product ID the device reports, in hexadecimal",
+        "es": "Identificador USB del producto que informa el aparato, en hexadecimal",
+        "fr": "Identifiant USB du produit annoncé par l'appareil, en hexadécimal",
+        "it": "Identificatore USB del prodotto riportato dal dispositivo, in esadecimale",
+        "nl": "USB-productcode die het apparaat meldt, hexadecimaal",
+        "pl": "Identyfikator produktu USB zgłaszany przez urządzenie, szesnastkowo",
+        "pt": "Identificador USB do produto comunicado pelo aparelho, em hexadecimal",
+        "ru": "USB-идентификатор изделия, сообщаемый устройством, в шестнадцатеричном виде",
+        "uk": "USB-ідентифікатор виробу, який повідомляє пристрій, у шістнадцятковому вигляді",
+        "zh-cn": "设备上报的 USB 产品标识，十六进制"
       }
     },
     "native": {},
@@ -20218,6 +20309,19 @@
         "ru": "Время ИБП",
         "uk": "Час ДБЖ",
         "zh-cn": "UPS 时间"
+      },
+      "desc": {
+        "de": "Uhrzeit der internen Uhr der USV — sie kann vom Server abweichen",
+        "en": "Time of the UPS's own clock — it can differ from the server's",
+        "es": "Hora del reloj interno del SAI — puede diferir de la del servidor",
+        "fr": "Heure de l'horloge interne de l'onduleur — elle peut différer de celle du serveur",
+        "it": "Ora dell'orologio interno dell'UPS — può differire da quella del server",
+        "nl": "Tijd van de eigen klok van de UPS — kan afwijken van die van de server",
+        "pl": "Godzina zegara wewnętrznego UPS — może różnić się od godziny serwera",
+        "pt": "Hora do relógio interno do UPS — pode diferir da do servidor",
+        "ru": "Время внутренних часов ИБП — может отличаться от серверного",
+        "uk": "Час внутрішнього годинника ДБЖ — може відрізнятися від серверного",
+        "zh-cn": "UPS 自身时钟的时间——可能与服务器不同"
       }
     },
     "native": {},
@@ -20356,6 +20460,19 @@
         "ru": "Тип ИБП",
         "uk": "Тип ДБЖ",
         "zh-cn": "UPS 类型"
+      },
+      "desc": {
+        "de": "Wie der Hersteller diese USV bezeichnet, z. B. offline — freier Text, anders als der Gerätetyp",
+        "en": "How the manufacturer labels this UPS, e.g. offline — free text, unlike the device type",
+        "es": "Cómo denomina el fabricante a este SAI, p. ej. offline — texto libre, no como el tipo de dispositivo",
+        "fr": "Désignation du fabricant pour cet onduleur, p. ex. offline — texte libre, contrairement au type d'appareil",
+        "it": "Come il produttore denomina questo UPS, ad es. offline — testo libero, diverso dal tipo di dispositivo",
+        "nl": "Hoe de fabrikant deze UPS noemt, bijv. offline — vrije tekst, anders dan het apparaattype",
+        "pl": "Jak producent określa ten UPS, np. offline — tekst dowolny, inaczej niż typ urządzenia",
+        "pt": "Como o fabricante designa este UPS, p. ex. offline — texto livre, ao contrário do tipo de dispositivo",
+        "ru": "Как производитель обозначает этот ИБП, например offline — свободный текст, в отличие от типа устройства",
+        "uk": "Як виробник позначає цей ДБЖ, наприклад offline — вільний текст, на відміну від типу пристрою",
+        "zh-cn": "厂商对该 UPS 的称谓，例如 offline——自由文本，不同于设备类型"
       }
     },
     "native": {},
@@ -20380,6 +20497,19 @@
         "ru": "ID производителя",
         "uk": "ID постачальника",
         "zh-cn": "供应商ID"
+      },
+      "desc": {
+        "de": "USB-Herstellerkennung, die das Gerät meldet, hexadezimal",
+        "en": "USB vendor ID the device reports, in hexadecimal",
+        "es": "Identificador USB del fabricante que informa el aparato, en hexadecimal",
+        "fr": "Identifiant USB du fabricant annoncé par l'appareil, en hexadécimal",
+        "it": "Identificatore USB del produttore riportato dal dispositivo, in esadecimale",
+        "nl": "USB-fabrikantcode die het apparaat meldt, hexadecimaal",
+        "pl": "Identyfikator producenta USB zgłaszany przez urządzenie, szesnastkowo",
+        "pt": "Identificador USB do fabricante comunicado pelo aparelho, em hexadecimal",
+        "ru": "USB-идентификатор производителя, сообщаемый устройством, в шестнадцатеричном виде",
+        "uk": "USB-ідентифікатор виробника, який повідомляє пристрій, у шістнадцятковому вигляді",
+        "zh-cn": "设备上报的 USB 厂商标识，十六进制"
       }
     },
     "native": {},

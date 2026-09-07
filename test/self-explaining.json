@@ -1,0 +1,20 @@
+{
+  "*.battery.mfr-date": "A manufacturing date — the name states both the subject and the kind of value, and NUT reports nothing else",
+  "*.commands.driver-private-cmd": "A driver-private instant command: the button sends exactly this name to the driver, and the adapter cannot know what the driver does with it",
+  "*.commands.driver-private-unknown": "A driver-private instant command outside the NUT catalog: the name is the literal command sent, and an invented sentence would describe some other driver",
+  "*.device.contact": "The name resolves the only ambiguity there is — this is the administrator's name, not a dry contact",
+  "*.device.description": "Free text an administrator stored on the device; the adapter can say nothing the name does not",
+  "*.device.location": "Free text an administrator stored on the device — where it stands; the name is the whole content",
+  "*.device.mfr": "Plain hardware identification: NUT reports the manufacturer and nothing more, so the label is the whole content",
+  "*.device.model": "Plain hardware identification: the model designation the device reports, and nothing beyond it",
+  "*.device.serial": "Plain hardware identification: an opaque serial number — a sentence could only repeat the name",
+  "*.driver.flag-weird": "A driver-private flag: the name is the driver's own, and the adapter cannot know what a private flag means",
+  "*.driver.name": "The NUT driver's program name, e.g. usbhid-ups — a sentence could only repeat it",
+  "*.driver.version-usb": "The name already says which of the driver's versions this is: the USB library it was built against",
+  "*.ups.firmware": "The UPS firmware version as an opaque string — name and value are the whole statement",
+  "*.ups.firmware-aux": "NUT specifies nothing beyond 'auxiliary device firmware'; the name is as specific as the protocol gets",
+  "*.ups.mfr": "Legacy twin of the device manufacturer that NUT will drop — plain identification, the label is the whole content",
+  "*.ups.mfr-date": "A manufacturing date — the name states both the subject and the kind of value, and NUT reports nothing else",
+  "*.ups.model": "Legacy twin of the device model that NUT will drop — plain identification, nothing beyond the designation",
+  "*.ups.serial": "Legacy twin of the device serial number that NUT will drop — an opaque string the name fully describes"
+}
