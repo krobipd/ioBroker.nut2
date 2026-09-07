@@ -1,5 +1,16 @@
 # Older changes
 
+## 0.12.0 (2026-09-02)
+
+- Fixed: the connection test now really verifies the username and password — it logs in to the NUT server and only then reports success, instead of accepting anything you type (#17)
+- Fixed: the adapter logs in to the NUT server whenever credentials are configured, so wrong credentials show up right away instead of silently failing on the first command
+- Fixed: a reply that is not a confirmation is no longer treated as success — a stray answer can no longer make a write, a login or an encrypted upgrade look like it worked
+- New: the connection test and the start message state whether the connection is encrypted and which user is logged in, so you can see what is really in use
+- New: a certificate file can be configured so strict certificate checking also works with your own certificate authority or a self-signed server certificate
+- Fixed: a value list the UPS no longer offers is really gone from a data point now, instead of keeping the dropped entry selectable forever
+- Fixed: renaming a data point during an update no longer costs the recording you attached to it — history and charts move over to the new name
+- Changed: data point names and descriptions belong to the adapter again and are restored on the next sync; your own names belong in 0_userdata
+
 ## 0.11.0 (2026-09-02)
 
 - New: a UPS added to or removed from the NUT server now appears or disappears at the next poll — no reconnect and no adapter restart needed for a changed server setup

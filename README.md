@@ -246,10 +246,11 @@ Any write to `nut2.0.notify` triggers an immediate poll of all UPS devices; an e
     ### **WORK IN PROGRESS**
 -->
 
-### **WORK IN PROGRESS**
+### 0.15.1 (2026-09-07)
 
-- Added: ten more UPS data points explain themselves — the battery date, the UPS's own clock, the three driver versions, the UPS identifier, the UPS type and the USB vendor/product IDs
-- Fixed: the battery maintenance date is the date of the NEXT change or service, not of the last one — name and explanation said the opposite in all eleven languages
+- New: ten more data points explain themselves — the battery date, the UPS's own clock, the three driver versions, the UPS identifier, the UPS type and the USB vendor and product IDs
+- Fixed: the battery maintenance date is the date of the NEXT change or service, not of the last one — its name said the opposite in all eleven languages
+- Improved: setting up the upsmon trigger is one line in upsmon.conf instead of a shell script, and points at the rest-api adapter; the older simple-api path stays documented
 
 ### 0.15.0 (2026-09-07)
 
@@ -289,17 +290,6 @@ Any write to `nut2.0.notify` triggers an immediate poll of all UPS devices; an e
 ### 0.12.1 (2026-09-02)
 
 - Fixed: the "Test connection" button in the settings stayed silent — clicking it produced no result at all. It answers again, on every instance updated from 0.9.0 or later
-
-### 0.12.0 (2026-09-02)
-
-- Fixed: the connection test now really verifies the username and password — it logs in to the NUT server and only then reports success, instead of accepting anything you type (#17)
-- Fixed: the adapter logs in to the NUT server whenever credentials are configured, so wrong credentials show up right away instead of silently failing on the first command
-- Fixed: a reply that is not a confirmation is no longer treated as success — a stray answer can no longer make a write, a login or an encrypted upgrade look like it worked
-- New: the connection test and the start message state whether the connection is encrypted and which user is logged in, so you can see what is really in use
-- New: a certificate file can be configured so strict certificate checking also works with your own certificate authority or a self-signed server certificate
-- Fixed: a value list the UPS no longer offers is really gone from a data point now, instead of keeping the dropped entry selectable forever
-- Fixed: renaming a data point during an update no longer costs the recording you attached to it — history and charts move over to the new name
-- Changed: data point names and descriptions belong to the adapter again and are restored on the next sync; your own names belong in 0_userdata
 
 [Older changelogs can be found there](CHANGELOG_OLD.md)
 

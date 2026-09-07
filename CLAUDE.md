@@ -107,7 +107,7 @@ docs/{en,de}/                   → Nutzerdoku im Repo (README/datapoints/faq), 
 
 50. **Zugangsdaten in der Test-Fixture müssen VERSCHLÜSSELT im Instanzobjekt liegen (v0.15.0)** — `username`/`password` stehen in `encryptedNative` (Wurzelebene von `io-package.json`, laut `@iobroker/types` genau dort richtig), also **entschlüsselt js-controller sie beim Start**. Die Fixture schrieb Klartext direkt in das Instanzobjekt (`changeAdapterConfig` geht an der DB vorbei, ohne zu verschlüsseln) — beim Adapter kam XOR-Rauschen gegen das Systemgeheimnis an. Enthielt das Rauschen zufällig ein Leerzeichen, verweigerte der Zugangsdaten-Wächter (#46) den Versand, und das Inventar verlor **still die kompletten Befehlstasten** (`Instant commands are enabled but no credentials are configured`). Das Geheimnis steht in `system.config.native.secret`; dasselbe symmetrische XOR verschlüsselt. Seither meldet der Lauf `Credentials for inventory verified` und das Inventar enthält 43 Befehlstasten und 53 statt 10 beschreibbare Datenpunkte. **Lehre:** ein „grünes" Inventar beweist nur, dass die Objekte, die entstanden sind, in Ordnung sind — nicht, dass alle entstanden sind, die entstehen sollten.
 
-## Tests (691 unit + 57 package = 748) + `npm run test:inventory` (Objekt-Inventar, 643 Objekte)
+## Tests (688 unit + 58 package = 746) + `npm run test:inventory` (Objekt-Inventar, 643 Objekte)
 
 ## Versionshistorie
 

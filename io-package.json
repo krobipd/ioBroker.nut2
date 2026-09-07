@@ -1,8 +1,21 @@
 {
   "common": {
     "name": "nut2",
-    "version": "0.15.0",
+    "version": "0.15.1",
     "news": {
+      "0.15.1": {
+        "en": "Ten more data points now explain themselves, the battery maintenance date names the NEXT service instead of the last one, and the upsmon trigger takes one line instead of a script",
+        "de": "Zehn weitere Datenpunkte erklären sich jetzt selbst, das Wartungsdatum der Batterie nennt die NÄCHSTE statt der letzten Wartung, und der upsmon-Auslöser braucht eine Zeile statt eines Skripts",
+        "ru": "Ещё десять точек данных теперь объясняют себя, дата обслуживания батареи указывает СЛЕДУЮЩЕЕ обслуживание вместо прошлого, а для триггера upsmon хватает одной строки вместо скрипта",
+        "pt": "Mais dez pontos de dados explicam-se agora, a data de manutenção da bateria indica a PRÓXIMA manutenção em vez da última, e o gatilho do upsmon precisa de uma linha em vez de um script",
+        "nl": "Nog eens tien datapunten leggen zichzelf nu uit, de onderhoudsdatum van de batterij noemt de VOLGENDE beurt in plaats van de vorige, en de upsmon-trigger vraagt één regel in plaats van een script",
+        "fr": "Dix points de données de plus s'expliquent désormais, la date d'entretien de la batterie indique le PROCHAIN entretien et non le dernier, et le déclencheur upsmon tient en une ligne",
+        "it": "Altri dieci punti dati ora si spiegano da soli, la data di manutenzione della batteria indica la PROSSIMA anziché l'ultima, e il trigger upsmon richiede una riga invece di uno script",
+        "es": "Otros diez puntos de datos ahora se explican solos, la fecha de mantenimiento de la batería indica el PRÓXIMO servicio en lugar del último, y el disparador de upsmon cabe en una línea",
+        "pl": "Kolejne dziesięć punktów danych samo się objaśnia, data serwisu akumulatora wskazuje NASTĘPNY przegląd zamiast poprzedniego, a wyzwalacz upsmon mieści się w jednej linii zamiast skryptu",
+        "uk": "Ще десять точок даних тепер пояснюють себе, дата обслуговування акумулятора вказує НАСТУПНЕ обслуговування замість минулого, а тригер upsmon вміщується в один рядок замість скрипта",
+        "zh-cn": "又有十个数据点会自我说明，电池维护日期显示的是下次而非上次维护，upsmon 触发器只需一行配置而不再需要脚本"
+      },
       "0.15.0": {
         "en": "Most data points now carry a name in your language instead of English, phases and outlets are told apart again, and a reading of the wrong kind is no longer written into a data point",
         "de": "Die meisten Datenpunkte tragen jetzt einen Namen in deiner Sprache statt Englisch, Phasen und Steckdosen sind wieder unterscheidbar, und ein Wert der falschen Art landet nicht mehr im Datenpunkt",
@@ -80,19 +93,6 @@
         "pl": "UPS dodany do serwera NUT lub z niego usunięty pojawia się lub znika przy następnym odpytaniu bez restartu; zapis do własnych stanów adaptera nie kończy się już błędem SET VAR.",
         "uk": "ДБЖ, доданий на сервер NUT або видалений з нього, з'являється чи зникає під час наступного опитування без перезапуску; запис у власні стани адаптера більше не спричиняє помилку SET VAR.",
         "zh-cn": "在 NUT 服务器上新增或移除的 UPS 会在下次轮询时出现或消失，无需重启；写入适配器自身状态不再产生 SET VAR 错误。"
-      },
-      "0.10.0": {
-        "en": "New: a writable notify state lets upsmon (or any script) push UPS events — on battery, low battery, shutdown — for an instant refresh instead of waiting for the next poll.",
-        "de": "Neu: Ein beschreibbarer notify-Datenpunkt lässt upsmon (oder ein Skript) USV-Ereignisse — Batteriebetrieb, Batterie schwach, Abschaltung — sofort melden, statt auf die nächste Abfrage zu warten.",
-        "ru": "Новое: записываемый датапоинт notify позволяет upsmon (или скрипту) сразу передавать события ИБП — работа от батареи, низкий заряд, выключение — вместо ожидания следующего опроса.",
-        "pt": "Novo: um estado notify gravável permite que o upsmon (ou um script) envie eventos do UPS — em bateria, bateria fraca, encerramento — para atualização imediata, sem esperar o próximo ciclo.",
-        "nl": "Nieuw: een beschrijfbare notify-status laat upsmon (of een script) UPS-gebeurtenissen — op accu, accu laag, afsluiten — meteen doorgeven in plaats van te wachten op de volgende peiling.",
-        "fr": "Nouveau : un état notify inscriptible permet à upsmon (ou à un script) de pousser les événements de l'onduleur — sur batterie, batterie faible, arrêt — pour un rafraîchissement immédiat.",
-        "it": "Novità: uno stato notify scrivibile consente a upsmon (o a uno script) di inviare subito gli eventi dell'UPS — a batteria, batteria scarica, spegnimento — senza attendere il polling successivo.",
-        "es": "Nuevo: un estado notify grabable permite que upsmon (o un script) envíe eventos del SAI — en batería, batería baja, apagado — para una actualización inmediata sin esperar al siguiente sondeo.",
-        "pl": "Nowość: zapisywalny stan notify pozwala upsmon (lub skryptowi) natychmiast przekazywać zdarzenia UPS — na baterii, niski poziom, wyłączenie — zamiast czekać na kolejne odpytanie.",
-        "uk": "Нове: записуваний датапоінт notify дозволяє upsmon (або скрипту) одразу передавати події ДБЖ — робота від батареї, низький заряд, вимкнення — без очікування наступного опитування.",
-        "zh-cn": "新增：可写的 notify 状态点让 upsmon（或任意脚本）即时推送 UPS 事件——使用电池、电量低、关机——无需等待下一次轮询。"
       }
     },
     "plugins": {
