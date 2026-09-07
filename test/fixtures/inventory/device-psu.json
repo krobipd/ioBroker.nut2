@@ -1,0 +1,19 @@
+{
+  "name": "device-psu",
+  "description": "Power supply unit (device.type = psu)",
+  "vars": {
+    "device.type": "psu",
+    "device.mfr": "Generic",
+    "device.model": "Power supply unit",
+    "device.serial": "SN-PSU-001",
+    "ups.status": "OL",
+    "input.voltage": "230.0",
+    "output.voltage": "230.0",
+    "outlet.count": "2",
+    "device.description": "Power supply unit"
+  },
+  "rw": {},
+  "enum": {},
+  "range": {},
+  "cmd": ["beeper.disable"]
+}

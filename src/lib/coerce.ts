@@ -1,4 +1,5 @@
 import { NUT_DEFAULT_COMMAND_TIMEOUT, NUT_DEFAULT_PORT } from "./types";
+import type { AdapterConfig, NutClientOptions } from "./types";
 
 // Strict decimal-only number parsing (fleet line, hassemu E8 origin): a plain
 // float parse would half-accept garbage suffixes ("34abc" → 34) and allow
@@ -134,6 +135,31 @@ export function coerceCommandTimeoutMs(raw: unknown): number {
     return NUT_DEFAULT_COMMAND_TIMEOUT;
   }
   return Math.max(1, Math.min(30, Math.floor(n))) * 1000;
+}
+
+/**
+ * The connection options every NutClient in this adapter is built with, derived from the config.
+ *
+ * ONE source for all of them — the live connection, the short-lived credential probe and the
+ * admin's connection-test client. Design #32 asks the probe to walk the same path as the adapter
+ * and #40 asks the test to tell the same story; both used to be honoured by two independent
+ * copies of this mapping (main.ts and message-router.ts), so an option added to one silently
+ * missed the other and the test button would have exercised a different connection than the one
+ * it reports on.
+ *
+ * The runtime-only fields (`setTimer`/`clearTimer`/`logger`) stay with the caller: they are not
+ * configuration, and the connection test deliberately runs on the plain global timers.
+ *
+ * @param config Adapter config (partial — the connection test receives it from the admin message)
+ */
+export function nutClientOptionsFrom(config: Partial<AdapterConfig>): NutClientOptions {
+  return {
+    localAddress: localAddressOf(config.networkInterface),
+    commandTimeout: coerceCommandTimeoutMs(config.commandTimeout),
+    useTls: !!config.useTls,
+    tlsRejectUnauthorized: !!config.tlsRejectUnauthorized,
+    tlsCaFile: typeof config.tlsCaFile === "string" ? config.tlsCaFile : "",
+  };
 }
 
 /**

@@ -9,6 +9,16 @@ vi.mock("@iobroker/adapter-core", () => ({
 
 import { StateManager, nutVarToStateId, nutVarToReadableName, sanitizeUpsName } from "./state-manager";
 
+/**
+ * Narrow a lookup that must have succeeded, so the test reads the object without optional chaining.
+ *
+ * @param value the looked-up value
+ * @param message what was expected
+ */
+function assert<T>(value: T | undefined, message: string): asserts value is T {
+  expect(value, message).toBeDefined();
+}
+
 // ---------------------------------------------------------------------------
 // Mock adapter
 // ---------------------------------------------------------------------------
@@ -82,6 +92,13 @@ function createMockAdapter(): {
       return Promise.resolve();
     },
     getObjectAsync: (id: string) => Promise.resolve(objects.get(id) ?? null),
+    // The REPLACING write, as js-controller does it: the stored object becomes exactly what is
+    // handed in. That is what makes removing a `common` attribute possible at all — extendObject
+    // merges and would keep the key (with the value null, which the object checker rejects).
+    setObject: (id: string, obj: MockObj) => {
+      objects.set(id, JSON.parse(JSON.stringify(obj)) as MockObj);
+      return Promise.resolve();
+    },
     // Mirrors the REAL js-controller merge (7.2.2 → node.extend(true, old, new)): objects are
     // merged KEY BY KEY (a shorter new value list therefore leaves the dropped entries behind),
     // `undefined` is skipped and `null` overwrites. A shallow mock would replace common.states
@@ -766,28 +783,143 @@ describe("StateManager", () => {
   });
 
   describe("three-phase / multi-sensor name translation (DP-7)", () => {
-    it("collapses a single-phase L-context var to the translated base name", async () => {
+    it("collapses a single-phase L-context var to the translated base name, marker in front", async () => {
       const { adapter, objects } = createMockAdapter();
       const sm = new StateManager(adapter);
       await sm.updateVariables("ups0", [{ name: "input.L1.voltage", value: "230" }], new Set());
       expect(objects.get("ups0.input.L1-voltage")?.common.name).toEqual({
-        en: "input.voltage",
-        de: "input.voltage_de",
+        en: "L1 input.voltage",
+        de: "L1 input.voltage_de",
       });
     });
 
-    it("collapses a line-to-line phase pair to the translated base name", async () => {
+    it("collapses a line-to-line phase pair to the translated base name, marker in front", async () => {
       const { adapter, objects } = createMockAdapter();
       const sm = new StateManager(adapter);
       await sm.updateVariables("ups0", [{ name: "input.L1-L2.voltage", value: "398" }], new Set());
       expect(objects.get("ups0.input.L1-L2-voltage")?.common.name).toEqual({
+        en: "L1-L2 input.voltage",
+        de: "L1-L2 input.voltage_de",
+      });
+    });
+
+    it("gives every phase of the same reading its OWN name", async () => {
+      // The translation is worth nothing if it costs the reader the one segment that says which
+      // phase is meant: before the marker, all three phases were called "Input voltage".
+      const { adapter, objects } = createMockAdapter();
+      const sm = new StateManager(adapter);
+      await sm.updateVariables(
+        "ups0",
+        [
+          { name: "input.L1.voltage", value: "230" },
+          { name: "input.L2.voltage", value: "231" },
+          { name: "input.L3.voltage", value: "229" },
+        ],
+        new Set(),
+      );
+      const names = ["L1", "L2", "L3"].map(
+        phase => (objects.get(`ups0.input.${phase}-voltage`)?.common.name as Record<string, string>).en,
+      );
+      expect(new Set(names).size).toBe(3);
+      expect(names).toEqual(["L1 input.voltage", "L2 input.voltage", "L3 input.voltage"]);
+    });
+
+    it("keeps BOTH markers of a two-variant name", async () => {
+      const { adapter, objects } = createMockAdapter();
+      const sm = new StateManager(adapter);
+      await sm.updateVariables("ups0", [{ name: "ambient.1.contacts.2.status", value: "open" }], new Set());
+      expect((objects.get("ups0.ambient.1-contacts-2-status")?.common.name as Record<string, string>).en).toBe(
+        "1 2 ambient.contacts.status",
+      );
+    });
+
+    it("leaves the base variable itself without a marker", async () => {
+      const { adapter, objects } = createMockAdapter();
+      const sm = new StateManager(adapter);
+      await sm.updateVariables("ups0", [{ name: "input.voltage", value: "230" }], new Set());
+      expect(objects.get("ups0.input.voltage")?.common.name).toEqual({
         en: "input.voltage",
         de: "input.voltage_de",
       });
     });
   });
 
+  describe("clearing shrinkable fields", () => {
+    it("writes NOTHING when there is no value list and no bounds to take away", async () => {
+      // Mutation R3: without the early return, every object gets a full setObject on first contact
+      // in a runtime — 566 broker round-trips that change not a single byte. The rule was covered
+      // before the mechanism changed from clearStatesBeforeWrite to removeCommonFields; this test
+      // is what carries it over.
+      const { adapter, objects } = createMockAdapter();
+      await new StateManager(adapter).updateVariables("ups0", [{ name: "device.mfr", value: "Eaton" }], new Set());
+      const id = "ups0.device.mfr";
+      const before = objects.get(id);
+      expect(before?.common.states).toBeUndefined();
+
+      let writes = 0;
+      const realSetObject = adapter.setObject;
+      adapter.setObject = (...args: unknown[]) => {
+        if (args[0] === id) {
+          writes++;
+        }
+        return (realSetObject as (...a: unknown[]) => Promise<void>)(...args);
+      };
+      // A SECOND manager = first contact with an EXISTING object, which is when the clearing runs.
+      await new StateManager(adapter).updateVariables("ups0", [{ name: "device.mfr", value: "Eaton" }], new Set());
+      expect(writes, "removeCommonFields wrote although nothing had to be removed").toBe(0);
+    });
+
+    it("DOES write when a value list has to go", async () => {
+      const { adapter, objects } = createMockAdapter();
+      const id = "ups0.ups.beeper-status";
+      await new StateManager(adapter).updateVariables(
+        "ups0",
+        [{ name: "ups.beeper.status", value: "enabled" }],
+        new Set(["ups.beeper.status"]),
+      );
+      expect(objects.get(id)?.common.states, "precondition: the datapoint carries a value list").toBeDefined();
+
+      let writes = 0;
+      const realSetObject = adapter.setObject;
+      adapter.setObject = (...args: unknown[]) => {
+        if (args[0] === id) {
+          writes++;
+        }
+        return (realSetObject as (...a: unknown[]) => Promise<void>)(...args);
+      };
+      await new StateManager(adapter).updateVariables(
+        "ups0",
+        [{ name: "ups.beeper.status", value: "enabled" }],
+        new Set(["ups.beeper.status"]),
+      );
+      expect(writes, "the shrinkable list was not cleared before the fresh write").toBeGreaterThan(0);
+    });
+  });
+
   describe("createCommandButtons", () => {
+    it("resolves a per-outlet command through its base command, marker in front", async () => {
+      // `outlet.n.load.off` is ONE documented command with an outlet number in the middle. Before
+      // the collapse it was an unknown command: raw label in all eleven languages, no explanation.
+      const { adapter, objects } = createMockAdapter();
+      const sm = new StateManager(adapter);
+      await sm.createCommandButtons("ups0", [{ name: "outlet.1.load.off" }, { name: "outlet.2.load.off" }]);
+      const first = objects.get("ups0.commands.outlet-1-load-off");
+      expect((first?.common.name as Record<string, string>).en).toBe("1 cmdOutletLoadOff");
+      expect(first?.common.desc).toBeDefined();
+      expect((objects.get("ups0.commands.outlet-2-load-off")?.common.name as Record<string, string>).en).toBe(
+        "2 cmdOutletLoadOff",
+      );
+    });
+
+    it("leaves a driver-private command with its raw label and no explanation", async () => {
+      const { adapter, objects } = createMockAdapter();
+      const sm = new StateManager(adapter);
+      await sm.createCommandButtons("ups0", [{ name: "driver.private.thing" }]);
+      const obj = objects.get("ups0.commands.driver-private-thing");
+      expect((obj?.common.name as Record<string, string>).en).toBe("Driver private thing");
+      expect(obj?.common.desc).toBeUndefined();
+    });
+
     it("should create button states with dots→dashes and readable names", async () => {
       const { adapter, objects } = createMockAdapter();
       const sm = new StateManager(adapter);
@@ -851,7 +983,7 @@ describe("StateManager", () => {
     });
   });
 
-  describe("cleanupRemovedUps", () => {
+  describe("pruneObjectTree — devices of UPSes the server no longer lists", () => {
     it("should remove devices not in current set", async () => {
       const { adapter, deletedIds } = createMockAdapter();
       const sm = new StateManager(adapter);
@@ -859,7 +991,7 @@ describe("StateManager", () => {
       await sm.ensureUpsDevice("ups0", "Main");
       await sm.ensureUpsDevice("ups1", "Backup");
 
-      await sm.cleanupRemovedUps(new Set(["ups0"]));
+      await sm.pruneObjectTree(new Set(["ups0"]));
 
       expect(deletedIds).toContain("ups1");
       expect(deletedIds).not.toContain("ups0");
@@ -872,7 +1004,7 @@ describe("StateManager", () => {
       await sm.ensureUpsDevice("ups0", "Main");
       deletedIds.length = 0;
 
-      await sm.cleanupRemovedUps(new Set(["ups0"]));
+      await sm.pruneObjectTree(new Set(["ups0"]));
 
       expect(deletedIds).toHaveLength(0);
     });
@@ -882,7 +1014,7 @@ describe("StateManager", () => {
       const sm = new StateManager(adapter);
 
       await sm.ensureUpsDevice("ups0", "Main");
-      await sm.cleanupRemovedUps(new Set());
+      await sm.pruneObjectTree(new Set());
 
       // After cleanup, re-creating should work (not cached)
       objects.clear();
@@ -895,7 +1027,7 @@ describe("StateManager", () => {
       const sm = new StateManager(adapter);
 
       await sm.ensureUpsDevice("ups0", "Main");
-      await sm.cleanupRemovedUps(new Set());
+      await sm.pruneObjectTree(new Set());
 
       expect(logs.some(l => l.includes("Removing stale UPS device: ups0"))).toBe(true);
     });
@@ -916,7 +1048,7 @@ describe("StateManager", () => {
       expect((objects.get("ups0")?.common.name as any).en).toBe("Eaton Ellipse PRO 1600");
 
       // Gone from the NUT server …
-      await sm.cleanupRemovedUps(new Set());
+      await sm.pruneObjectTree(new Set());
       objects.clear();
 
       // … and back on the next poll.
@@ -943,7 +1075,7 @@ describe("StateManager", () => {
         common: { name: "old", custom: { "history.0": { enabled: true } } },
         native: {},
       });
-      await sm.cleanupRemovedUps(new Set());
+      await sm.pruneObjectTree(new Set());
 
       expect(sm.nutNameForState("ups0.battery.charge")).toBeUndefined();
     });
@@ -957,7 +1089,7 @@ describe("StateManager", () => {
       await sm.updateVariables("ups0", [{ name: "battery.charge", value: "Infinity" }], new Set());
       expect(warns()).toHaveLength(1);
 
-      await sm.cleanupRemovedUps(new Set());
+      await sm.pruneObjectTree(new Set());
       await sm.ensureUpsDevice("ups0", "Main");
       await sm.updateVariables("ups0", [{ name: "battery.charge", value: "Infinity" }], new Set());
       expect(warns()).toHaveLength(2);
@@ -1302,7 +1434,7 @@ describe("StateManager", () => {
   // -----------------------------------------------------------------------
   // cleanupLegacyObjects
   // -----------------------------------------------------------------------
-  describe("cleanupLegacyObjects", () => {
+  describe("pruneObjectTree — orphaned roots and v0.1.0 dot-style ids", () => {
     it("should remove root-level orphans from old adapter", async () => {
       const { adapter, objects, deletedIds } = createMockAdapter();
       const sm = new StateManager(adapter);
@@ -1312,7 +1444,7 @@ describe("StateManager", () => {
       objects.set("commands", { type: "channel", common: { name: "Commands" }, native: {} });
 
       await sm.ensureUpsDevice("ups0", "Main UPS");
-      await sm.cleanupLegacyObjects(new Set(["ups0"]));
+      await sm.pruneObjectTree(new Set(["ups0"]));
 
       expect(deletedIds).toContain("battery");
       expect(deletedIds).toContain("commands");
@@ -1323,7 +1455,7 @@ describe("StateManager", () => {
       const sm = new StateManager(adapter);
 
       await sm.ensureUpsDevice("ups0", "Main UPS");
-      await sm.cleanupLegacyObjects(new Set(["ups0"]));
+      await sm.pruneObjectTree(new Set(["ups0"]));
 
       expect(deletedIds).not.toContain("info");
       expect(deletedIds).not.toContain("ups0");
@@ -1338,7 +1470,7 @@ describe("StateManager", () => {
       objects.set("notify", { type: "state", common: { name: "Trigger" }, native: {} });
 
       await sm.ensureUpsDevice("ups0", "Main UPS");
-      await sm.cleanupLegacyObjects(new Set(["ups0"]));
+      await sm.pruneObjectTree(new Set(["ups0"]));
 
       expect(deletedIds).not.toContain("notify");
       expect(objects.has("notify")).toBe(true);
@@ -1354,7 +1486,7 @@ describe("StateManager", () => {
       objects.set("ups0.battery.charge.low", { type: "state", common: { name: "charge.low" }, native: {} });
       objects.set("ups0.driver.version.data", { type: "state", common: { name: "version.data" }, native: {} });
 
-      await sm.cleanupLegacyObjects(new Set(["ups0"]));
+      await sm.pruneObjectTree(new Set(["ups0"]));
 
       expect(deletedIds).toContain("ups0.battery.charge.low");
       expect(deletedIds).toContain("ups0.driver.version.data");
@@ -1373,7 +1505,7 @@ describe("StateManager", () => {
       objects.set("ups0.a.b.c", { type: "state", common: { name: "mid" }, native: {} });
       objects.set("ups0.a.b.c.d", { type: "state", common: { name: "deep" }, native: {} });
 
-      await sm.cleanupLegacyObjects(new Set(["ups0"]));
+      await sm.pruneObjectTree(new Set(["ups0"]));
 
       const dIdx = deletedIds.indexOf("ups0.a.b.c.d");
       const cIdx = deletedIds.indexOf("ups0.a.b.c");
@@ -1614,7 +1746,7 @@ describe("StateManager", () => {
         native: {},
       });
 
-      await sm.cleanupLegacyObjects(new Set(["ups0"]));
+      await sm.pruneObjectTree(new Set(["ups0"]));
       expect(deletedIds).toContain("ups0.battery.charge.low");
       // The successor is built by the first poll — the recording waits for it.
       await sm.updateVariables("ups0", [{ name: "battery.charge.low", value: "20" }], new Set());
@@ -1837,5 +1969,235 @@ describe("UPS summary states", () => {
     expect(states.get("info.upsTotal")).toEqual({ val: 3, ack: true });
     expect(states.get("info.upsReachable")).toEqual({ val: 0, ack: true });
     expect(states.get("info.allUpsReachable")).toEqual({ val: false, ack: true });
+  });
+});
+
+describe("a value that no longer fits its data point", () => {
+  // The object is written ONCE per runtime (createdIds), and design #16 forbids re-typing it
+  // between polls. Before this guard the VALUE went in anyway: a string landed in a
+  // `type: "boolean"` data point and stood there until the next adapter restart, breaking every
+  // script that trusts the declared type. js-controller only logs it at info level, once per
+  // change (validator.js `performStrictObjectCheck`, reached from `_setStateChangedHelper` when
+  // the value differs), so nothing loud ever pointed at it.
+
+  it("keeps a driver.flag data point boolean and discards a value that stopped being one", async () => {
+    const { adapter, objects, states, logs } = createMockAdapter();
+    const sm = new StateManager(adapter);
+
+    await sm.updateVariables("ups0", [{ name: "driver.flag.ignorelb", value: "enabled" }], new Set());
+    expect(objects.get("ups0.driver.flag-ignorelb")?.common.type).toBe("boolean");
+    expect(states.get("ups0.driver.flag-ignorelb")).toEqual({ val: true, ack: true });
+
+    // parseFlagValue does not recognise "2" → detectType falls back to an opaque string.
+    await sm.updateVariables("ups0", [{ name: "driver.flag.ignorelb", value: "2" }], new Set());
+    expect(objects.get("ups0.driver.flag-ignorelb")?.common.type).toBe("boolean");
+    // The value did NOT change — the last good one stands instead of a string in a boolean field.
+    expect(states.get("ups0.driver.flag-ignorelb")).toEqual({ val: true, ack: true });
+    expect(logs.filter(l => l.startsWith("WARN") && l.includes("driver.flag.ignorelb"))).toHaveLength(1);
+
+    // …and it stays quiet from then on.
+    await sm.updateVariables("ups0", [{ name: "driver.flag.ignorelb", value: "3" }], new Set());
+    expect(logs.filter(l => l.startsWith("WARN") && l.includes("driver.flag.ignorelb"))).toHaveLength(1);
+  });
+
+  it("also guards a numeric variable the unit catalog does not know", async () => {
+    // `expectedNumeric` only ever fired for variables detectUnit recognises — a unit-less numeric
+    // (input.phases has no unit rule) slipped straight through into a `type: "number"` object.
+    const { adapter, objects, states, logs } = createMockAdapter();
+    const sm = new StateManager(adapter);
+
+    await sm.updateVariables("ups0", [{ name: "input.phases", value: "1" }], new Set());
+    expect(objects.get("ups0.input.phases")?.common.type).toBe("number");
+    expect(states.get("ups0.input.phases")).toEqual({ val: 1, ack: true });
+
+    await sm.updateVariables("ups0", [{ name: "input.phases", value: "n/a" }], new Set());
+    expect(states.get("ups0.input.phases")).toEqual({ val: 1, ack: true });
+    expect(logs.some(l => l.startsWith("WARN") && l.includes("input.phases"))).toBe(true);
+  });
+
+  it("still stores null — an idle countdown is 'no value', not a type mismatch", async () => {
+    const { adapter, states } = createMockAdapter();
+    const sm = new StateManager(adapter);
+    // The HID drivers report -1 for "no countdown running" → parsedValue null on a number state.
+    await sm.updateVariables("ups0", [{ name: "ups.timer.shutdown", value: "-1" }], new Set());
+    expect(states.get("ups0.ups.timer-shutdown")).toEqual({ val: null, ack: true });
+  });
+
+  it("re-types the object across an adapter restart — the freeze is per runtime, not forever", async () => {
+    const { adapter, objects } = createMockAdapter();
+    await new StateManager(adapter).updateVariables("ups0", [{ name: "driver.flag.x", value: "enabled" }], new Set());
+    expect(objects.get("ups0.driver.flag-x")?.common.type).toBe("boolean");
+
+    // A fresh StateManager is what a restarted adapter has: createdIds is empty again.
+    await new StateManager(adapter).updateVariables("ups0", [{ name: "driver.flag.x", value: "2" }], new Set());
+    expect(objects.get("ups0.driver.flag-x")?.common.type).toBe("string");
+  });
+});
+
+describe("a dotless variable must not take a channel's id", () => {
+  // NUT 2.8.5 emits none (all 321 literal dstate_setinfo names carry a dot; the "bare ALARM" is a
+  // VALUE of ups.status), but the adapter accepts any name a server sends — and dotless names sort
+  // first, so without this guard the state always won the id and the channel's children ended up
+  // hanging beneath a state object.
+
+  it("skips a dotless variable named like an adapter-owned channel and says so once", async () => {
+    const { adapter, objects, logs } = createMockAdapter();
+    const sm = new StateManager(adapter);
+    await sm.updateVariables("ups0", [{ name: "status", value: "OL" }], new Set());
+    expect(objects.has("ups0.status")).toBe(false);
+    expect(logs.filter(l => l.startsWith("WARN") && l.includes("'status'"))).toHaveLength(1);
+
+    // The status channel is now free to be created as a CHANNEL, with its flags below it.
+    await sm.updateStatusFlags("ups0", "OL");
+    expect(objects.get("ups0.status")?.type).toBe("channel");
+    expect(objects.has("ups0.status.raw")).toBe(true);
+
+    await sm.updateVariables("ups0", [{ name: "status", value: "OB" }], new Set());
+    expect(logs.filter(l => l.startsWith("WARN") && l.includes("'status'"))).toHaveLength(1);
+  });
+
+  it("skips a dotless variable that collides with a NUT channel in the same batch", async () => {
+    const { adapter, objects } = createMockAdapter();
+    const sm = new StateManager(adapter);
+    await sm.updateVariables(
+      "ups0",
+      [
+        { name: "battery", value: "something" },
+        { name: "battery.charge", value: "80" },
+      ],
+      new Set(),
+    );
+    expect(objects.get("ups0.battery")?.type).toBe("channel");
+    expect(objects.get("ups0.battery.charge")?.common.type).toBe("number");
+  });
+
+  it("creates a harmless dotless variable normally", async () => {
+    const { adapter, objects, states } = createMockAdapter();
+    const sm = new StateManager(adapter);
+    await sm.updateVariables("ups0", [{ name: "SOMEVAR", value: "42" }], new Set(["SOMEVAR"]));
+    expect(objects.get("ups0.SOMEVAR")?.common.write).toBe(true);
+    expect(states.get("ups0.SOMEVAR")).toEqual({ val: 42, ack: true });
+    // The lossless reverse lookup is what makes it writable through onStateChange.
+    expect(sm.nutNameForState("ups0.SOMEVAR")).toBe("SOMEVAR");
+  });
+});
+
+describe("bounds never outlive the LIST RANGE that produced them", () => {
+  it("clears min/max when the enrichment no longer reports them", async () => {
+    const { adapter, objects } = createMockAdapter();
+    const sm = new StateManager(adapter);
+    await sm.updateVariables("ups0", [{ name: "battery.charge.low", value: "20" }], new Set(["battery.charge.low"]));
+    await sm.enrichStateMetadata("ups0.battery.charge-low", { min: 10, max: 50 });
+    expect(objects.get("ups0.battery.charge-low")?.common).toMatchObject({ min: 10, max: 50 });
+
+    // A driver update drops the range: the caller now says so explicitly instead of staying silent.
+    await sm.enrichStateMetadata("ups0.battery.charge-low", { min: null, max: null });
+    // GONE, not null: `common.min` must be a number, and the object-structure checker rejects a
+    // null there (E1004) — writing null was the first thing the inventory gate ever caught here.
+    const common = objects.get("ups0.battery.charge-low")?.common ?? {};
+    expect("min" in common).toBe(false);
+    expect("max" in common).toBe(false);
+    // …and the rest of the object survived the replacing write.
+    expect(common.type).toBe("number");
+    expect(common.unit).toBe("%");
+  });
+
+  it("clears stale bounds at the next adapter start, even when nothing enriches any more", async () => {
+    // The variable stopped being writable, so the enrichment never visits it again — the bounds
+    // used to stand forever, with js-controller warning about every value outside them.
+    const { adapter, objects } = createMockAdapter();
+    await new StateManager(adapter).updateVariables(
+      "ups0",
+      [{ name: "battery.charge.low", value: "20" }],
+      new Set(["battery.charge.low"]),
+    );
+    await new StateManager(adapter).enrichStateMetadata("ups0.battery.charge-low", { min: 10, max: 50 });
+    expect(objects.get("ups0.battery.charge-low")?.common).toMatchObject({ min: 10, max: 50 });
+
+    await new StateManager(adapter).updateVariables("ups0", [{ name: "battery.charge.low", value: "20" }], new Set());
+    const after = objects.get("ups0.battery.charge-low")?.common ?? {};
+    expect("min" in after).toBe(false);
+    expect("max" in after).toBe(false);
+    expect(after.write).toBe(false);
+  });
+
+  it("keeps the user's recording when it removes an attribute", async () => {
+    // Removal replaces the whole object, so `common.custom` is the thing that could get lost —
+    // it belongs to the user, and a repair of adapter-owned metadata must never cost it (#31).
+    const { adapter, objects } = createMockAdapter();
+    const sm = new StateManager(adapter);
+    await sm.updateVariables("ups0", [{ name: "battery.charge.low", value: "20" }], new Set(["battery.charge.low"]));
+    await sm.enrichStateMetadata("ups0.battery.charge-low", { min: 10, max: 50 });
+    const obj = objects.get("ups0.battery.charge-low");
+    assert(obj, "the state has to exist before the recording is attached");
+    obj.common.custom = { "history.0": { enabled: true } };
+
+    await sm.enrichStateMetadata("ups0.battery.charge-low", { min: null, max: null });
+    expect(objects.get("ups0.battery.charge-low")?.common.custom).toEqual({ "history.0": { enabled: true } });
+  });
+
+  it("clears a value list that shrank to nothing", async () => {
+    const { adapter, objects } = createMockAdapter();
+    const sm = new StateManager(adapter);
+    await sm.updateVariables("ups0", [{ name: "ups.beeper.status", value: "enabled" }], new Set());
+    expect(Object.keys(objects.get("ups0.ups.beeper-status")?.common.states ?? {})).toContain("muted");
+
+    await sm.enrichStateMetadata("ups0.ups.beeper-status", { states: null });
+    expect("states" in (objects.get("ups0.ups.beeper-status")?.common ?? {})).toBe(false);
+  });
+});
+
+describe("mutation-audit gaps (2026-09-06)", () => {
+  it("reads the adapter namespace ONCE for the whole prune, not once per pass", async () => {
+    // Since design #25 the prune runs on every (re)connect and every change of the UPS list. It
+    // used to be two public methods with a full `getAdapterObjectsAsync()` each, back to back.
+    const { adapter, objects } = createMockAdapter();
+    objects.set("ups0", { type: "device", common: {}, native: {} });
+    objects.set("gone", { type: "device", common: {}, native: {} });
+    objects.set("orphan.leaf", { type: "state", common: {}, native: {} });
+    let reads = 0;
+    const real = adapter.getAdapterObjectsAsync;
+    adapter.getAdapterObjectsAsync = () => {
+      reads += 1;
+      return real();
+    };
+
+    await new StateManager(adapter).pruneObjectTree(new Set(["ups0"]));
+    expect(reads).toBe(1);
+  });
+
+  it("does not report a removed UPS a second time as an orphan of an older version", async () => {
+    // The order is why the prune is ONE method: the device pass deletes, and the later passes must
+    // not judge the same snapshot again — "orphan from a previous adapter version" is the wrong
+    // sentence for a UPS the user has just unplugged.
+    const { adapter, objects, logs, deletedIds } = createMockAdapter();
+    objects.set("gone", { type: "device", common: {}, native: {} });
+    objects.set("gone.battery", { type: "channel", common: {}, native: {} });
+
+    await new StateManager(adapter).pruneObjectTree(new Set(["ups0"]));
+
+    expect(logs.filter(l => l.includes("Removing stale UPS device: gone"))).toHaveLength(1);
+    expect(logs.filter(l => l.includes("orphaned root object"))).toHaveLength(0);
+    expect(deletedIds).toContain("gone");
+  });
+
+  it("collapses BOTH variant segments — a sensor contact is named and explained", async () => {
+    // `ambient.1.contacts.1.status` carries two of them. Collapsing only the first left
+    // `ambient.contacts.1.status`, a name no catalog knows — so the data point had neither a
+    // translated label nor an explanation, while its single-segment siblings did.
+    const { adapter, objects } = createMockAdapter();
+    await new StateManager(adapter).updateVariables(
+      "ups0",
+      [
+        { name: "ambient.1.contacts.1.status", value: "closed" },
+        { name: "ambient.1.temperature", value: "22.5" },
+      ],
+      new Set(),
+    );
+    const contact = objects.get("ups0.ambient.1-contacts-1-status")?.common ?? {};
+    expect(contact.desc, "the two-segment name must reach the catalog too").toBeDefined();
+    expect(contact.name).toBeDefined();
+    // …and the one-segment sibling keeps working.
+    expect(objects.get("ups0.ambient.1-temperature")?.common.desc).toBeDefined();
   });
 });

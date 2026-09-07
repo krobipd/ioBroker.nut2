@@ -100,7 +100,7 @@ vi.mock("@iobroker/adapter-core", () => {
 });
 
 import { NutAdapter } from "./main";
-import { NutError } from "./lib/nut-client";
+import { NutConnectionError, NutError, NutTimeoutError } from "./lib/nut-client";
 import type { NutClient } from "./lib/nut-client";
 import type { StateManager } from "./lib/state-manager";
 import type { NutVariable, UpsInfo } from "./lib/types";
@@ -185,8 +185,7 @@ interface FakeStateManager {
   updateDeviceName: ReturnType<typeof vi.fn>;
   updateStatusFlags: ReturnType<typeof vi.fn>;
   createCommandButtons: ReturnType<typeof vi.fn>;
-  cleanupRemovedUps: ReturnType<typeof vi.fn>;
-  cleanupLegacyObjects: ReturnType<typeof vi.fn>;
+  pruneObjectTree: ReturnType<typeof vi.fn>;
   enrichStateMetadata: ReturnType<typeof vi.fn>;
   nutNameForState: ReturnType<typeof vi.fn>;
   markAllUnreachable: ReturnType<typeof vi.fn>;
@@ -201,8 +200,7 @@ function makeFakeStateManager(): FakeStateManager {
     updateDeviceName: vi.fn(async () => {}),
     updateStatusFlags: vi.fn(async () => {}),
     createCommandButtons: vi.fn(async () => {}),
-    cleanupRemovedUps: vi.fn(async () => {}),
-    cleanupLegacyObjects: vi.fn(async () => {}),
+    pruneObjectTree: vi.fn(async () => {}),
     enrichStateMetadata: vi.fn(async () => {}),
     nutNameForState: vi.fn(() => undefined),
     markAllUnreachable: vi.fn(async () => {}),
@@ -221,6 +219,7 @@ interface Internal {
   poll: () => Promise<void>;
   discover: () => Promise<void>;
   classifyError: (err: unknown) => string;
+  unloaded: boolean;
   makeClient: (...args: unknown[]) => NutClient;
   makeStateManager: () => StateManager;
   client: FakeClient | null;
@@ -522,7 +521,7 @@ describe("onConnected — idempotent post-connect setup", () => {
     const s = setup({ username: "u", password: "p" });
     await s.internal.onReady();
     s.sm.ensureUpsDevice.mockImplementation(() => {
-      (s.internal as unknown as { unloaded: boolean }).unloaded = true;
+      s.internal.unloaded = true;
       return Promise.resolve();
     });
 
@@ -559,13 +558,20 @@ describe("onConnected — idempotent post-connect setup", () => {
     expect(s.sm.createCommandButtons).toHaveBeenCalledWith("ups0", [{ name: "beeper.enable" }]);
   });
 
-  it("a failing LIST CMD for one UPS is non-fatal (debug only)", async () => {
+  it("a failing LIST CMD warns once per UPS — no buttons appear and the user must be able to see why", async () => {
     const s = setup({ username: "u", password: "p", enableCommands: true });
     s.client.listCmd.mockRejectedValue(new Error("no commands"));
     await s.internal.onReady();
     await s.internal.onConnected();
-    expect(logsOf(s.stub, "debug").some(m => m.includes("Failed to list commands"))).toBe(true);
+    // Not debug: the user enabled commands and gets nothing — exactly like the neighbouring
+    // "commands enabled without credentials" case, which has always warned.
+    expect(logsOf(s.stub, "warn").filter(m => m.includes("No command buttons for 'ups0'"))).toHaveLength(1);
     expect(logsOf(s.stub, "error")).toEqual([]);
+
+    // …and only once: a driver that never supports LIST CMD must not repeat it on every reconnect.
+    await s.internal.onConnected();
+    expect(logsOf(s.stub, "warn").filter(m => m.includes("No command buttons for 'ups0'"))).toHaveLength(1);
+    expect(logsOf(s.stub, "debug").some(m => m.includes("No command buttons for 'ups0'"))).toBe(true);
   });
 
   it("subscribes the wildcard exactly once and only when commands or SET VAR are enabled", async () => {
@@ -604,8 +610,10 @@ describe("discover", () => {
       { name: "ups1", description: "Backup" },
     ]);
     expect([...s.internal.discoveredUps.keys()]).toEqual(["ups0", "ups1"]);
-    expect(s.sm.cleanupRemovedUps).toHaveBeenCalledWith(new Set(["ups0", "ups1"]));
-    expect(s.sm.cleanupLegacyObjects).toHaveBeenCalledWith(new Set(["ups0", "ups1"]));
+    // ONE pass over the object tree for both cleanups — it used to be two, each with its own
+    // full read of the adapter namespace, on every (re)connect and every UPS-list change.
+    expect(s.sm.pruneObjectTree).toHaveBeenCalledTimes(1);
+    expect(s.sm.pruneObjectTree).toHaveBeenCalledWith(new Set(["ups0", "ups1"]));
   });
 
   it("prunes stale failedUps/enrichedUps markers when a UPS disappears (v0.4.2)", async () => {
@@ -632,7 +640,7 @@ describe("UPS name sanitization", () => {
     // Object tree + cleanup work on the sanitized ID; discoveredUps is keyed on it.
     expect([...s.internal.discoveredUps.keys()]).toEqual(["my_ups_"]);
     expect(s.sm.ensureUpsDevice).toHaveBeenCalledWith("my_ups_", "Weird UPS");
-    expect(s.sm.cleanupRemovedUps).toHaveBeenCalledWith(new Set(["my_ups_"]));
+    expect(s.sm.pruneObjectTree).toHaveBeenCalledWith(new Set(["my_ups_"]));
     // NUT protocol calls (poll) use the real, unsanitized name.
     expect(s.client.listVar).toHaveBeenCalledWith("my ups!");
     // Command buttons: LIST CMD uses the real name, buttons are created under the sanitized ID.
@@ -653,6 +661,62 @@ describe("UPS name sanitization", () => {
   });
 });
 
+describe("an absent NUT server reads as absent, not as a fault", () => {
+  it("warns instead of erroring when the client reports the connection is down", async () => {
+    // What the persistent client really hands the poll while it is reconnecting. This used to
+    // classify as UNKNOWN and write `error: Poll failed: Connection closed` into the ioBroker log
+    // on every NUT-server restart — right next to the warn line that already said the same thing.
+    // The NETWORK branch, written for exactly this, was unreachable on the real path.
+    const s = await setupConnected();
+    s.client.listUps.mockRejectedValue(new NutConnectionError("Connection closed"));
+    s.stub.logs.length = 0;
+
+    await s.internal.poll();
+
+    expect(logsOf(s.stub, "error")).toEqual([]);
+    const warns = logsOf(s.stub, "warn").filter(m => m.includes("Cannot reach NUT server"));
+    expect(warns).toHaveLength(1);
+    expect(warns[0]).toContain("Connection closed");
+    expect(s.internal.lastErrorCode).toBe("NETWORK");
+
+    // Repeats stay at debug — one line per outage, not one per poll.
+    await s.internal.poll();
+    expect(logsOf(s.stub, "warn").filter(m => m.includes("Cannot reach NUT server"))).toHaveLength(1);
+  });
+
+  it("treats a command timeout the same way — the server is not answering, that is not our fault", async () => {
+    const s = await setupConnected();
+    s.client.listUps.mockRejectedValue(new NutTimeoutError("LIST UPS"));
+    s.stub.logs.length = 0;
+    await s.internal.poll();
+    expect(logsOf(s.stub, "error")).toEqual([]);
+    expect(logsOf(s.stub, "warn").some(m => m.includes("Cannot reach NUT server"))).toBe(true);
+  });
+
+  it("still calls a genuinely unexpected failure an error", async () => {
+    const s = await setupConnected();
+    s.client.listUps.mockRejectedValue(new Error("something nobody predicted"));
+    s.stub.logs.length = 0;
+    await s.internal.poll();
+    expect(logsOf(s.stub, "error").some(m => m.includes("Poll failed"))).toBe(true);
+  });
+
+  it("says nothing at all while shutting down", async () => {
+    // onUnload tears the client down under a poll that may still be in flight; whatever it then
+    // raises is our own doing. Stopping an instance must never warn about itself.
+    const s = await setupConnected();
+    s.client.listUps.mockRejectedValue(new NutConnectionError("Client cancelled"));
+    s.internal.unloaded = true;
+    s.stub.logs.length = 0;
+
+    await s.internal.poll();
+
+    expect(logsOf(s.stub, "error")).toEqual([]);
+    expect(logsOf(s.stub, "warn")).toEqual([]);
+    expect(logsOf(s.stub, "debug").some(m => m.includes("Poll aborted by shutdown"))).toBe(true);
+  });
+});
+
 describe("classifyError", () => {
   it("maps NutError to its code, network codes to NETWORK, timeouts to TIMEOUT", () => {
     const { internal } = setup();
@@ -660,9 +724,17 @@ describe("classifyError", () => {
     expect(internal.classifyError(Object.assign(new Error("x"), { code: "ECONNREFUSED" }))).toBe("NETWORK");
     expect(internal.classifyError(Object.assign(new Error("x"), { code: "EHOSTUNREACH" }))).toBe("NETWORK");
     expect(internal.classifyError(Object.assign(new Error("x"), { code: "ETIMEDOUT" }))).toBe("TIMEOUT");
-    expect(internal.classifyError(new Error("NUT command timed out: LIST UPS"))).toBe("TIMEOUT");
+    // By TYPE, not by wording: the message is free to change without moving the error into
+    // another bucket, and a test can no longer pin the very string being matched.
+    expect(internal.classifyError(new NutTimeoutError("LIST UPS"))).toBe("TIMEOUT");
+    // What the persistent client actually hands the poll when the server is away. This used to
+    // land in UNKNOWN and paint the log red on every NUT-server restart.
+    expect(internal.classifyError(new NutConnectionError("Not connected"))).toBe("NETWORK");
+    expect(internal.classifyError(new NutConnectionError("Connection closed"))).toBe("NETWORK");
     expect(internal.classifyError(Object.assign(new Error("x"), { code: "EWEIRD" }))).toBe("EWEIRD");
     expect(internal.classifyError(new Error("plain"))).toBe("UNKNOWN");
+    // A message that merely READS like a timeout no longer counts as one.
+    expect(internal.classifyError(new Error("NUT command timed out: LIST UPS"))).toBe("UNKNOWN");
     expect(internal.classifyError("not an error")).toBe("UNKNOWN");
   });
 });
@@ -676,7 +748,43 @@ describe("poll", () => {
     s.internal.enrichedUps.clear();
     s.sm.enrichStateMetadata.mockClear();
     await s.internal.poll();
-    expect(s.sm.enrichStateMetadata).toHaveBeenCalledWith(expect.any(String), { max: 600 });
+    // `min` is explicitly null: the server offered no usable lower bound, and a merge can never
+    // remove a key later — a stale bound would otherwise outlive the driver that reported it.
+    expect(s.sm.enrichStateMetadata).toHaveBeenCalledWith(expect.any(String), { min: null, max: 600 });
+  });
+
+  it("clears a value list the server no longer offers — but only when the catalog is silent too", async () => {
+    // A merge can never remove a key, so a list nobody reports any more would stay selectable in
+    // the admin forever. The adapter's own catalog is the better answer for the many drivers that
+    // simply do not implement LIST ENUM, so it wins where it has an entry.
+    const s = await setupConnected({ enableSetVar: true });
+    s.client.listRange.mockResolvedValue([]);
+    s.client.listEnum.mockResolvedValue([]);
+
+    // ups.delay.shutdown has no catalog entry → the empty answer must clear the list.
+    s.client.listRw.mockResolvedValue([{ name: "ups.delay.shutdown", value: "20" }]);
+    s.internal.enrichedUps.clear();
+    s.sm.enrichStateMetadata.mockClear();
+    await s.internal.poll();
+    expect(s.sm.enrichStateMetadata).toHaveBeenCalledWith(expect.any(String), { states: null });
+
+    // ups.beeper.status HAS one (enabled/disabled/muted) → keep it, do not wipe it.
+    s.client.listRw.mockResolvedValue([{ name: "ups.beeper.status", value: "enabled" }]);
+    s.internal.enrichedUps.clear();
+    s.sm.enrichStateMetadata.mockClear();
+    await s.internal.poll();
+    expect(s.sm.enrichStateMetadata).not.toHaveBeenCalledWith(expect.any(String), { states: null });
+  });
+
+  it("clears stale bounds when the server stops reporting a RANGE", async () => {
+    const s = await setupConnected({ enableSetVar: true });
+    s.client.listRw.mockResolvedValue([{ name: "ups.delay.shutdown", value: "20" }]);
+    s.client.listEnum.mockResolvedValue([]);
+    s.client.listRange.mockResolvedValue([]);
+    s.internal.enrichedUps.clear();
+    s.sm.enrichStateMetadata.mockClear();
+    await s.internal.poll();
+    expect(s.sm.enrichStateMetadata).toHaveBeenCalledWith(expect.any(String), { min: null, max: null });
   });
 
   it("does not query LIST RW or mark variables writable while SET VAR is disabled", async () => {
@@ -849,11 +957,11 @@ describe("UPS list changes on the NUT server at runtime", () => {
   it("an unchanged list runs no discovery and creates nothing again", async () => {
     const s = await setupConnected();
     s.sm.ensureUpsDevice.mockClear();
-    s.sm.cleanupRemovedUps.mockClear();
+    s.sm.pruneObjectTree.mockClear();
     await s.internal.poll();
     await s.internal.poll();
     expect(s.sm.ensureUpsDevice).not.toHaveBeenCalled();
-    expect(s.sm.cleanupRemovedUps).not.toHaveBeenCalled();
+    expect(s.sm.pruneObjectTree).not.toHaveBeenCalled();
     expect(logsOf(s.stub, "info").some(m => m.includes("UPS list on the NUT server changed"))).toBe(false);
   });
 
@@ -880,7 +988,7 @@ describe("UPS list changes on the NUT server at runtime", () => {
     s.client.listUps.mockResolvedValue([{ name: "ups0", description: "Main UPS" }]);
     await s.internal.poll();
     expect([...s.internal.discoveredUps.keys()]).toEqual(["ups0"]);
-    expect(s.sm.cleanupRemovedUps).toHaveBeenLastCalledWith(new Set(["ups0"]));
+    expect(s.sm.pruneObjectTree).toHaveBeenLastCalledWith(new Set(["ups0"]));
     expect(s.sm.writeUpsSummary).toHaveBeenLastCalledWith(1, 1);
   });
 
@@ -1005,8 +1113,34 @@ describe("onStateChange — command and SET VAR gates", () => {
 
   it("ignores writes with an unexpected id structure", async () => {
     const s = await setupConnected({ enableSetVar: true });
+    // A single segment is never a data point of this adapter.
     await s.internal.onStateChange("nut2.0.shallow", { val: 1, ack: false });
+    // Two segments only count when the state manager knows the NUT name behind them — a hand-made
+    // object under the namespace has none, and must not turn into a SET VAR with a bogus name.
+    s.sm.nutNameForState.mockReturnValue(undefined);
+    await s.internal.onStateChange("nut2.0.ups0.HANDMADE", { val: 1, ack: false });
     expect(s.client.setVar).not.toHaveBeenCalled();
+  });
+
+  it("writes a DOTLESS NUT variable — created writable, so it has to be writable", async () => {
+    // The two halves used to disagree: updateVariables creates a dotless variable directly under
+    // the device (`ups0.SOMEVAR`, two segments) with write: true, while onStateChange rejected
+    // everything below three segments. The user saw a writable data point that swallowed every
+    // write with nothing but a debug line. The lossless reverse lookup already had the answer.
+    const s = await setupConnected({ enableSetVar: true });
+    s.sm.nutNameForState.mockReturnValue("SOMEVAR");
+    await s.internal.onStateChange("nut2.0.ups0.SOMEVAR", { val: 42, ack: false });
+    expect(s.client.setVar).toHaveBeenCalledWith("ups0", "SOMEVAR", "42");
+  });
+
+  it("does not mistake a dotless variable for an adapter-owned channel", async () => {
+    // At two segments parts[1] IS the variable name — testing it against "info"/"status"/
+    // "commands" there would reject a legitimate variable (and the state manager already keeps
+    // such a name out of the tree in the first place).
+    const s = await setupConnected({ enableSetVar: true });
+    s.sm.nutNameForState.mockReturnValue("infotext");
+    await s.internal.onStateChange("nut2.0.ups0.infotext", { val: "x", ack: false });
+    expect(s.client.setVar).toHaveBeenCalledWith("ups0", "infotext", "x");
   });
 });
 

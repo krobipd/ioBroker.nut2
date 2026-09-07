@@ -1,0 +1,19 @@
+{
+  "name": "device-pdu",
+  "description": "Power distribution unit (device.type = pdu)",
+  "vars": {
+    "device.type": "pdu",
+    "device.mfr": "Generic",
+    "device.model": "Power distribution unit",
+    "device.serial": "SN-PDU-001",
+    "ups.status": "OL",
+    "input.voltage": "230.0",
+    "output.voltage": "230.0",
+    "outlet.count": "2",
+    "device.description": "Power distribution unit"
+  },
+  "rw": {},
+  "enum": {},
+  "range": {},
+  "cmd": ["beeper.disable"]
+}

@@ -7,14 +7,14 @@ import {
   coercePollIntervalSec,
   coercePort,
   errText,
-  localAddressOf,
+  nutClientOptionsFrom,
   parseDecimal,
   parseNotifyTrigger,
 } from "./lib/coerce";
 import { dispatchMessage, makeTestClientFactory } from "./lib/message-router";
-import { authFailureText, NutClient, NutError } from "./lib/nut-client";
+import { authFailureText, NutClient, NutConnectionError, NutError, NutTimeoutError } from "./lib/nut-client";
 import { nutVarToStateId, sanitizeUpsName, StateManager } from "./lib/state-manager";
-import { detectType } from "./lib/type-detector";
+import { detectStates, detectType } from "./lib/type-detector";
 import type { AdapterConfig, NutClientOptions, NutLogger, NutVariable, UpsInfo } from "./lib/types";
 
 /** Upper bound for the notify warn-dedup set (external input must not grow it without limit). */
@@ -42,6 +42,8 @@ export class NutAdapter extends utils.Adapter {
   private warnedCredentialsRejected = false;
   /** Commands enabled without credentials — say it once, not on every reconnect. */
   private warnedCommandsWithoutCredentials = false;
+  /** UPSes whose LIST CMD failed — warn once each, then debug (pruned with the UPS in discover). */
+  private warnedCommandListFailures = new Set<string>();
   private enrichedUps = new Set<string>();
   private testClients = new Set<NutClient>();
   private subscribed = false;
@@ -75,13 +77,11 @@ export class NutAdapter extends utils.Adapter {
    * on a multi-homed host, TLS settings, command deadline).
    */
   private clientOptions(): NutClientOptions {
-    const config = this.nutConfig();
     return {
-      localAddress: localAddressOf(config.networkInterface),
-      commandTimeout: coerceCommandTimeoutMs(config.commandTimeout),
-      useTls: !!config.useTls,
-      tlsRejectUnauthorized: !!config.tlsRejectUnauthorized,
-      tlsCaFile: typeof config.tlsCaFile === "string" ? config.tlsCaFile : "",
+      // The config-derived half comes from the one shared mapping (coerce.ts), which the admin's
+      // connection test uses as well — otherwise an option added here would never reach the
+      // button that claims to test this very connection.
+      ...nutClientOptionsFrom(this.nutConfig()),
       // Inject the adapter-managed timers so the client's command/reconnect timeouts are
       // tracked and auto-cleared on unload (no native setTimeout leaks).
       setTimer: (cb, ms) => this.setTimeout(cb, ms),
@@ -394,7 +394,17 @@ export class NutAdapter extends utils.Adapter {
         await this.stateManager.createCommandButtons(upsId, commands);
         this.log.debug(`Created ${commands.length} command buttons for ${ups.name}`);
       } catch (err) {
-        this.log.debug(`Failed to list commands for ${ups.name}: ${errText(err)}`);
+        // The user ticked "enable commands" and gets no buttons — that has to be visible without
+        // switching the log to debug, exactly like the missing-credentials case above. Once per
+        // UPS per runtime, so a permanently unsupported driver does not repeat it on every
+        // reconnect.
+        const msg = `No command buttons for '${ups.name}' — the NUT server did not answer LIST CMD: ${errText(err)}`;
+        if (this.warnedCommandListFailures.has(upsId)) {
+          this.log.debug(msg);
+        } else {
+          this.warnedCommandListFailures.add(upsId);
+          this.log.warn(msg);
+        }
       }
     }
   }
@@ -506,28 +516,46 @@ export class NutAdapter extends utils.Adapter {
     }
 
     const knownNames = new Set(this.discoveredUps.keys());
-    await this.stateManager.cleanupRemovedUps(knownNames);
-    await this.stateManager.cleanupLegacyObjects(knownNames);
+    await this.stateManager.pruneObjectTree(knownNames);
 
     // Prune the in-memory per-UPS markers alongside the object cleanup — a UPS that
     // disappears and later re-appears must start fresh (a stale failedUps entry would
-    // demote its first real error to debug; a stale enrichedUps entry would skip the
-    // enum/range enrichment).
-    for (const name of this.failedUps) {
-      if (!knownNames.has(name)) {
-        this.failedUps.delete(name);
-      }
-    }
-    for (const name of this.enrichedUps) {
-      if (!knownNames.has(name)) {
-        this.enrichedUps.delete(name);
+    // demote its first real error to debug, a stale enrichedUps entry would skip the
+    // enum/range enrichment, and a stale command-list marker would swallow the returning
+    // UPS's first warning). One loop over all of them, so a marker added later cannot be
+    // forgotten here.
+    for (const marker of [this.failedUps, this.enrichedUps, this.warnedCommandListFailures]) {
+      for (const name of marker) {
+        if (!knownNames.has(name)) {
+          marker.delete(name);
+        }
       }
     }
   }
 
+  /**
+   * Bucket a caught poll error, so the log can tell "the server is away and we are retrying"
+   * apart from "something unexpected broke".
+   *
+   * Classification is by TYPE, not by message text. The client raises its own classes for the two
+   * states the poll sees most often; matching on wording instead meant that rephrasing a message
+   * silently moved an error into another bucket, with the tests pinning the very string that was
+   * being matched.
+   *
+   * @param err Caught value from the poll
+   */
   private classifyError(err: unknown): string {
     if (err instanceof NutError) {
       return err.code;
+    }
+    // The persistent client swallows socket failures in its own retry loop; what reaches the poll
+    // is "not connected" / "connection closed" / "connect timed out". That IS the unreachable
+    // server — the same bucket as ECONNREFUSED, and the reason the NETWORK branch exists.
+    if (err instanceof NutConnectionError) {
+      return "NETWORK";
+    }
+    if (err instanceof NutTimeoutError) {
+      return "TIMEOUT";
     }
     if (!(err instanceof Error)) {
       return "UNKNOWN";
@@ -543,7 +571,7 @@ export class NutAdapter extends utils.Adapter {
     ) {
       return "NETWORK";
     }
-    if (code === "ETIMEDOUT" || err.message.includes("timed out")) {
+    if (code === "ETIMEDOUT") {
       return "TIMEOUT";
     }
     return code || "UNKNOWN";
@@ -654,10 +682,18 @@ export class NutAdapter extends utils.Adapter {
       const isRepeat = errorCode === this.lastErrorCode;
       this.lastErrorCode = errorCode;
 
-      if (isRepeat) {
+      if (this.unloaded) {
+        // Shutting down: the client was torn down under this poll, so whatever it raised is our
+        // own doing. Never let stopping the instance write a warning about itself.
+        this.log.debug(`Poll aborted by shutdown: ${errMsg}`);
+      } else if (isRepeat) {
         this.log.debug(`Poll failed (ongoing): ${errMsg}`);
-      } else if (errorCode === "NETWORK") {
-        this.log.warn("Cannot reach NUT server — will keep retrying");
+      } else if (errorCode === "NETWORK" || errorCode === "TIMEOUT") {
+        // Not a fault of this adapter and it fixes itself — the client is already retrying with
+        // backoff. A server that is simply restarting must not paint the log red.
+        const host = coerceHost(this.nutConfig().host) ?? "";
+        const port = coercePort(this.nutConfig().port);
+        this.log.warn(`Cannot reach NUT server ${host}:${port} (${errMsg}) — will keep retrying`);
       } else {
         this.log.error(`Poll failed: ${errMsg}`);
       }
@@ -708,6 +744,13 @@ export class NutAdapter extends utils.Adapter {
               states[v] = v;
             }
             await this.stateManager.enrichStateMetadata(stateId, { states });
+          } else if (!detectStates(rw.name)) {
+            // The server no longer offers a value list, and the adapter's own catalog has none
+            // for this variable either — so the list has to GO. A merge never removes a key, so
+            // an old list would stay selectable in the admin forever. Only when the catalog is
+            // silent too: its entries are the better answer for the many drivers that simply do
+            // not implement LIST ENUM.
+            await this.stateManager.enrichStateMetadata(stateId, { states: null });
           }
         } catch (err: unknown) {
           this.log.debug(`LIST ENUM ${nutName} ${rw.name}: not supported (${errText(err)})`);
@@ -715,18 +758,21 @@ export class NutAdapter extends utils.Adapter {
       }
       try {
         const ranges = await this.client.listRange(nutName, rw.name);
+        // No range (or an unreadable one) means the bounds must disappear, not stay: they came
+        // from LIST RANGE alone, and a driver update that drops a range would otherwise leave
+        // js-controller warning about every value outside bounds nobody reports any more.
+        const patch: { min: number | null; max: number | null } = { min: null, max: null };
         if (ranges.length > 0) {
           const min = parseDecimal(ranges[0].min);
           const max = parseDecimal(ranges[0].max);
-          const patch: Partial<Record<"min" | "max", number>> = {};
           if (!Number.isNaN(min)) {
             patch.min = min;
           }
           if (!Number.isNaN(max)) {
             patch.max = max;
           }
-          await this.stateManager.enrichStateMetadata(stateId, patch);
         }
+        await this.stateManager.enrichStateMetadata(stateId, patch);
       } catch (err: unknown) {
         this.log.debug(`LIST RANGE ${nutName} ${rw.name}: not supported (${errText(err)})`);
       }
@@ -757,7 +803,12 @@ export class NutAdapter extends utils.Adapter {
 
       const parts = localId.split(".");
 
-      if (parts.length < 3) {
+      // Two segments is a legitimate shape: a NUT variable without a dot has no channel and is
+      // created directly under the device (`ups0.SOMEVAR`). It is only writable if the state
+      // manager knows the original NUT name for it — that is the same lossless lookup the dotted
+      // path uses, so it decides here too. Rejecting on segment count alone made the adapter
+      // create such a variable with `write: true` and then drop every write to it.
+      if (parts.length < 2 || (parts.length === 2 && !this.stateManager?.nutNameForState(localId))) {
         this.log.debug(`onStateChange: unexpected id structure '${localId}', ignoring`);
         return;
       }
@@ -774,12 +825,14 @@ export class NutAdapter extends utils.Adapter {
       // `info` (reachable, notify) and `status` (the parsed flags) are adapter-owned channels,
       // never NUT variables — a write there (a script, the REST API) must not turn into a
       // SET VAR that upsd rejects with VAR-NOT-SUPPORTED and an error line in the log.
-      if (parts[1] === "info" || parts[1] === "status") {
+      // Only meaningful with a channel segment: at two segments parts[1] is the variable name
+      // itself, and the state manager already keeps such a name off the adapter's own channels.
+      if (parts.length > 2 && (parts[1] === "info" || parts[1] === "status")) {
         this.log.debug(`onStateChange: ${localId} is adapter-owned, ignoring write`);
         return;
       }
 
-      if (parts[1] === "commands") {
+      if (parts.length > 2 && parts[1] === "commands") {
         if (!config.enableCommands) {
           this.log.warn(`Command blocked — enableCommands is disabled: ${localId}`);
           return;
@@ -809,8 +862,12 @@ export class NutAdapter extends utils.Adapter {
         return;
       }
 
+      // The lossless name the state manager recorded when it created the state. The reconstruction
+      // is only the fallback for a dotted id whose state predates that bookkeeping; a dotless id
+      // never needs it (the guard above already required the lookup to succeed).
       const varName =
-        this.stateManager?.nutNameForState(localId) ?? `${parts[1]}.${parts.slice(2).join(".").replace(/-/g, ".")}`;
+        this.stateManager?.nutNameForState(localId) ??
+        (parts.length > 2 ? `${parts[1]}.${parts.slice(2).join(".").replace(/-/g, ".")}` : parts.slice(1).join("."));
       // A writable yes/no variable (ups.start.auto/.battery/.reboot, battery.protection) is stored
       // as a boolean state (detectType → boolean only via parseYesNo, so boolean ⟺ the NUT var
       // accepts yes/no). Translate it back to the token NUT expects — String(true) = "true" would

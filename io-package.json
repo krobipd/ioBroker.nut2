@@ -3,6 +3,19 @@
     "name": "nut2",
     "version": "0.14.0",
     "news": {
+      "NEXT": {
+        "en": "Most data points now carry a name in your language instead of English, phases and outlets are told apart again, and a reading of the wrong kind is no longer written into a data point",
+        "de": "Die meisten Datenpunkte tragen jetzt einen Namen in deiner Sprache statt Englisch, Phasen und Steckdosen sind wieder unterscheidbar, und ein Wert der falschen Art landet nicht mehr im Datenpunkt",
+        "ru": "Большинство точек данных теперь имеют название на вашем языке вместо английского, фазы и розетки снова различимы, а значение неверного типа больше не попадает в точку данных",
+        "pt": "A maioria dos pontos de dados tem agora um nome no seu idioma em vez de inglês, as fases e as tomadas voltam a distinguir-se, e um valor do tipo errado já não é escrito no ponto de dados",
+        "nl": "De meeste datapunten hebben nu een naam in je eigen taal in plaats van Engels, fasen en uitgangen zijn weer te onderscheiden, en een waarde van het verkeerde type belandt niet meer in het datapunt",
+        "fr": "La plupart des points de données portent un nom dans votre langue plutôt qu'en anglais, les phases et les prises se distinguent à nouveau, et une valeur du mauvais type n'y est plus écrite",
+        "it": "La maggior parte dei punti dati ha ora un nome nella tua lingua invece che in inglese, le fasi e le prese tornano distinguibili e un valore di tipo errato non viene più scritto nel punto dati",
+        "es": "La mayoría de los puntos de datos tienen ahora un nombre en tu idioma en lugar de inglés, las fases y las tomas vuelven a distinguirse, y un valor de tipo incorrecto ya no se escribe en ellos",
+        "pl": "Większość punktów danych ma teraz nazwę w Twoim języku zamiast angielskiej, fazy i gniazda znów da się odróżnić, a wartość niewłaściwego typu nie trafia już do punktu danych",
+        "uk": "Більшість точок даних тепер мають назву вашою мовою замість англійської, фази та розетки знову можна розрізнити, а значення неправильного типу більше не потрапляє в точку даних",
+        "zh-cn": "现在大多数数据点显示为你所用语言的名称而不是英文，各相与各插座重新可区分，类型不符的读数也不再写入数据点"
+      },
       "0.14.0": {
         "en": "A leftover certificate file no longer stops the adapter, refused credentials are reported honestly instead of as an error, and renamed data points now reach existing installations",
         "de": "Eine übrig gebliebene Zertifikatsdatei stoppt den Adapter nicht mehr, abgelehnte Zugangsdaten werden ehrlich statt als Fehler gemeldet, und umbenannte Datenpunkte erreichen jetzt bestehende Anlagen",
@@ -80,19 +93,6 @@
         "pl": "Nowość: zapisywalny stan notify pozwala upsmon (lub skryptowi) natychmiast przekazywać zdarzenia UPS — na baterii, niski poziom, wyłączenie — zamiast czekać na kolejne odpytanie.",
         "uk": "Нове: записуваний датапоінт notify дозволяє upsmon (або скрипту) одразу передавати події ДБЖ — робота від батареї, низький заряд, вимкнення — без очікування наступного опитування.",
         "zh-cn": "新增：可写的 notify 状态点让 upsmon（或任意脚本）即时推送 UPS 事件——使用电池、电量低、关机——无需等待下一次轮询。"
-      },
-      "0.9.0": {
-        "en": "Three new states show how many UPS devices were found, how many answer right now and whether that is all of them — and a stopped adapter no longer shows a UPS as reachable.",
-        "de": "Drei neue Datenpunkte zeigen, wie viele USVen gefunden wurden, wie viele gerade antworten und ob das alle sind — und eine gestoppte Instanz zeigt keine USV mehr als erreichbar.",
-        "ru": "Три новых состояния показывают, сколько ИБП найдено, сколько отвечает сейчас и все ли это — а остановленный адаптер больше не показывает ИБП доступным.",
-        "pt": "Três novos estados mostram quantos UPS foram encontrados, quantos respondem agora e se são todos — e um adaptador parado deixa de mostrar um UPS como acessível.",
-        "nl": "Drie nieuwe datapunten tonen hoeveel UPS'en zijn gevonden, hoeveel er nu antwoorden en of dat alle zijn — en een gestopte adapter toont geen UPS meer als bereikbaar.",
-        "fr": "Trois nouveaux états indiquent combien d'onduleurs ont été trouvés, combien répondent et si ce sont tous — et un adaptateur arrêté n'affiche plus d'onduleur joignable.",
-        "it": "Tre nuovi stati mostrano quanti UPS sono stati trovati, quanti rispondono ora e se sono tutti — e un adapter fermo non mostra più un UPS come raggiungibile.",
-        "es": "Tres nuevos estados muestran cuántos SAI se encontraron, cuántos responden ahora y si son todos — y un adaptador detenido ya no muestra un SAI como accesible.",
-        "pl": "Trzy nowe stany pokazują, ile zasilaczy UPS znaleziono, ile odpowiada teraz i czy to wszystkie — a zatrzymany adapter nie pokazuje już UPS jako osiągalnego.",
-        "uk": "Три нові стани показують, скільки ДБЖ знайдено, скільки відповідає зараз і чи це всі — а зупинений адаптер більше не показує ДБЖ доступним.",
-        "zh-cn": "三个新数据点显示已发现多少台 UPS、当前有多少台响应以及是否全部响应；已停止的适配器不再把 UPS 显示为可访问。"
       }
     },
     "plugins": {
@@ -179,7 +179,8 @@
       "usv",
       "battery",
       "power"
-    ]
+    ],
+    "nogit": true
   },
   "encryptedNative": [
     "username",

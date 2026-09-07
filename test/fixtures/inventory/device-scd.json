@@ -1,0 +1,19 @@
+{
+  "name": "device-scd",
+  "description": "Solar controller device (device.type = scd)",
+  "vars": {
+    "device.type": "scd",
+    "device.mfr": "Generic",
+    "device.model": "Solar controller device",
+    "device.serial": "SN-SCD-001",
+    "ups.status": "OL",
+    "input.voltage": "230.0",
+    "output.voltage": "230.0",
+    "outlet.count": "2",
+    "device.description": "Solar controller device"
+  },
+  "rw": {},
+  "enum": {},
+  "range": {},
+  "cmd": ["beeper.disable"]
+}

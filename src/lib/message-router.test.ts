@@ -12,6 +12,7 @@ vi.mock("@iobroker/adapter-core", () => ({
 import { NutError, type NutClient } from "./nut-client";
 import { dispatchMessage, type MessageRouterDeps } from "./message-router";
 import type { NutClientOptions } from "./types";
+import { nutClientOptionsFrom } from "./coerce";
 
 interface SentMessage {
   from: string;
@@ -221,6 +222,27 @@ describe("dispatchMessage", () => {
         tlsRejectUnauthorized: true,
         tlsCaFile: "/etc/ssl/nut-ca.pem",
       });
+    });
+
+    it("builds the options from the ONE shared mapping, not a look-alike copy", async () => {
+      // The router used to carry its own copy of this five-field mapping. An option added to the
+      // adapter's clientOptions() then silently missed the very button that claims to test that
+      // connection — against design #32 ("the probe walks the same path") and #40 ("the test tells
+      // the same story"). Comparing against the shared function is what keeps the two from drifting:
+      // a new field appears on both sides at once, or this fails.
+      const config = {
+        host: "192.168.1.100",
+        port: 3493,
+        networkInterface: "10.0.0.5",
+        commandTimeout: 8,
+        useTls: true,
+        tlsRejectUnauthorized: true,
+        tlsCaFile: "/etc/ssl/nut-ca.pem",
+      };
+      const h = makeHarness([{ name: "ups0", description: "Eaton" }]);
+      await dispatchMessage(buildMessage({ command: "checkConnection", message: config }), h.deps);
+
+      expect(h.createdOptions[0]).toEqual(nutClientOptionsFrom(config));
     });
 
     it("omits localAddress and defaults TLS off when not configured", async () => {

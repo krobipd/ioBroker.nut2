@@ -81,12 +81,27 @@ for (const d of STATUS_CATALOG) {
   STATUS_FLAGS[d.token] = d.flag;
   FLAG_META[d.flag] = {
     i18nKey: d.i18nKey,
-    descKey: `desc${d.i18nKey.charAt(0).toUpperCase()}${d.i18nKey.slice(1)}` as I18nKey,
+    descKey: descKeyOf(d.i18nKey),
     role: d.role,
   };
 }
 for (const [alias, token] of Object.entries(STATUS_ALIASES)) {
   STATUS_FLAGS[alias] = STATUS_FLAGS[token];
+}
+
+/**
+ * The description key that belongs to a name key: `flagOnline` → `descFlagOnline`.
+ *
+ * The convention is what keeps `admin/i18n/en.json` the single place that decides whether an
+ * explanation exists — no second catalog listing the same entries again. Lives here because the
+ * flag catalog above is its first user, and because `state-manager.ts` (its second user, for the
+ * instant commands) already imports from this module: no new dependency edge, and this file stays
+ * free of `adapter-core` so it remains testable on its own.
+ *
+ * @param nameKey The admin/i18n key of the name
+ */
+export function descKeyOf(nameKey: I18nKey): I18nKey {
+  return `desc${nameKey.charAt(0).toUpperCase()}${nameKey.slice(1)}` as I18nKey;
 }
 
 /** All known flag keys for creating default-false states (catalog order). */

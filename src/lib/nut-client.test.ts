@@ -120,10 +120,6 @@ function createMockNutServer(handler?: MockHandler): {
         `END LIST RANGE ${ups} ${varName}`,
       ];
     }
-    if (cmd.startsWith("GET VAR ")) {
-      const parts = cmd.split(" ");
-      return `VAR ${parts[2]} ${parts[3]} "42"`;
-    }
     if (cmd.startsWith("SET VAR ")) {
       return "OK";
     }
@@ -577,26 +573,12 @@ describe("NutClient", () => {
   });
 
   // -----------------------------------------------------------------------
-  // GET VAR
+  // Single-line commands (SET VAR walks the same one-line request/response path)
   // -----------------------------------------------------------------------
-  describe("getVar", () => {
-    it("should return a single variable value", async () => {
-      const mock = createMockNutServer();
-      const port = await mock.start();
-      try {
-        const client = new NutClient("127.0.0.1", port);
-        await client.connect();
-        const val = await client.getVar("ups0", "battery.charge");
-        expect(val).toBe("42");
-        client.destroy();
-      } finally {
-        await mock.stop();
-      }
-    });
-
+  describe("single-line commands", () => {
     it("should reject on VAR-NOT-SUPPORTED", async () => {
       const mock = createMockNutServer(cmd => {
-        if (cmd.startsWith("GET VAR")) {
+        if (cmd.startsWith("SET VAR")) {
           return "ERR VAR-NOT-SUPPORTED";
         }
         return "ERR UNKNOWN-COMMAND";
@@ -605,7 +587,7 @@ describe("NutClient", () => {
       try {
         const client = new NutClient("127.0.0.1", port);
         await client.connect();
-        await expect(client.getVar("ups0", "no.such.var")).rejects.toThrow(NutError);
+        await expect(client.setVar("ups0", "no.such.var", "1")).rejects.toThrow(NutError);
         client.destroy();
       } finally {
         await mock.stop();
@@ -697,7 +679,6 @@ describe("NutClient", () => {
         await expect(client.setVar("ups0", "ups.delay shutdown", "20")).rejects.toThrow("Invalid NUT variable name");
         await expect(client.setVar("ups0", 'a"b', "20")).rejects.toThrow("Invalid NUT variable name");
         await expect(client.instCmd("ups0", "load off")).rejects.toThrow("Invalid NUT command name");
-        await expect(client.getVar("ups0", "")).rejects.toThrow("Invalid NUT variable name");
         await expect(client.listEnum("ups 0", "x")).rejects.toThrow("Invalid NUT UPS name");
         await expect(client.listRange("ups0", "x\\y")).rejects.toThrow("Invalid NUT variable name");
         await expect(client.listVar("u p")).rejects.toThrow("Invalid NUT UPS name");
@@ -766,6 +747,63 @@ describe("NutClient", () => {
         await client.authenticate("admin", "secret");
         expect(mock.commands).toContain("USERNAME admin");
         expect(mock.commands).toContain("PASSWORD secret");
+        client.destroy();
+      } finally {
+        await mock.stop();
+      }
+    });
+
+    it("names the cause when a credential carries a space, and sends nothing", async () => {
+      // upsd takes exactly one argument here (`numarg != 1` → ERR INVALID-ARGUMENT,
+      // server/netuser.c:147 and :167 of NUT 2.8.5), so a space splits it into two and the server
+      // answers with a bare INVALID-ARGUMENT that names nothing — the user then hunts the password,
+      // upsd.users and the rights. The protocol token guard covered every other unquoted argument
+      // but not these two.
+      const mock = createMockNutServer();
+      const port = await mock.start();
+      try {
+        const client = new NutClient("127.0.0.1", port);
+        await client.connect();
+        mock.commands.length = 0;
+        await expect(client.authenticate("ad min", "secret")).rejects.toThrow(/username contains a space/i);
+        await expect(client.authenticate("admin", "se cret")).rejects.toThrow(/password contains a space/i);
+        await expect(client.authenticate("admin", "sec\tret")).rejects.toThrow(/password contains a space/i);
+        // Nothing may reach the wire — not even the USERNAME that on its own would be fine.
+        expect(mock.commands).toEqual([]);
+        client.destroy();
+      } finally {
+        await mock.stop();
+      }
+    });
+
+    it("refuses a quote or backslash in a credential — unquoted, the server would read another value", async () => {
+      const mock = createMockNutServer();
+      const port = await mock.start();
+      try {
+        const client = new NutClient("127.0.0.1", port);
+        await client.connect();
+        mock.commands.length = 0;
+        await expect(client.authenticate("admin", 'sec"ret')).rejects.toThrow(/quote or a backslash/i);
+        await expect(client.authenticate("admin", "sec\\ret")).rejects.toThrow(/quote or a backslash/i);
+        await expect(client.authenticate("", "secret")).rejects.toThrow(/username is empty/i);
+        expect(mock.commands).toEqual([]);
+        client.destroy();
+      } finally {
+        await mock.stop();
+      }
+    });
+
+    it("never puts the credential itself into the error message", async () => {
+      // The text lands in the log and in the admin's connection-test answer, and both values are
+      // protectedNative/encryptedNative. It says WHAT is wrong, never what was entered.
+      const mock = createMockNutServer();
+      const port = await mock.start();
+      try {
+        const client = new NutClient("127.0.0.1", port);
+        await client.connect();
+        await expect(client.authenticate("admin", "hunter 2")).rejects.toThrow(
+          expect.objectContaining({ message: expect.not.stringContaining("hunter") }),
+        );
         client.destroy();
       } finally {
         await mock.stop();
@@ -878,7 +916,7 @@ describe("NutClient", () => {
   describe("error handling", () => {
     it("should parse NUT error codes", async () => {
       const mock = createMockNutServer(cmd => {
-        if (cmd.startsWith("GET VAR")) {
+        if (cmd.startsWith("SET VAR")) {
           return "ERR ACCESS-DENIED";
         }
         return "ERR UNKNOWN-COMMAND";
@@ -888,7 +926,7 @@ describe("NutClient", () => {
         const client = new NutClient("127.0.0.1", port);
         await client.connect();
         try {
-          await client.getVar("ups0", "battery.charge");
+          await client.setVar("ups0", "battery.charge", "1");
           expect.unreachable("should have thrown");
         } catch (err) {
           expect(err).toBeInstanceOf(NutError);
@@ -988,12 +1026,12 @@ describe("NutClient", () => {
     it("should process next command after error", async () => {
       let callCount = 0;
       const mock = createMockNutServer(cmd => {
-        if (cmd.startsWith("GET VAR")) {
+        if (cmd.startsWith("SET VAR")) {
           callCount++;
           if (callCount === 1) {
             return "ERR VAR-NOT-SUPPORTED";
           }
-          return 'VAR ups0 ups.load "15"';
+          return "OK";
         }
         return "ERR UNKNOWN-COMMAND";
       });
@@ -1002,9 +1040,8 @@ describe("NutClient", () => {
         const client = new NutClient("127.0.0.1", port);
         await client.connect();
 
-        await expect(client.getVar("ups0", "no.such.var")).rejects.toThrow(NutError);
-        const val = await client.getVar("ups0", "ups.load");
-        expect(val).toBe("15");
+        await expect(client.setVar("ups0", "no.such.var", "1")).rejects.toThrow(NutError);
+        await client.setVar("ups0", "ups.load", "15");
 
         client.destroy();
       } finally {
@@ -1015,8 +1052,8 @@ describe("NutClient", () => {
     it("desyncs and reconnects after a command timeout (resync)", { timeout: 10000 }, async () => {
       let respond = false;
       const mock = createMockNutServer(cmd => {
-        if (cmd.startsWith("GET VAR")) {
-          return respond ? 'VAR ups0 ups.load "15"' : null; // no response → timeout
+        if (cmd.startsWith("SET VAR")) {
+          return respond ? "OK" : null; // no response → timeout
         }
         return "ERR UNKNOWN-COMMAND";
       });
@@ -1034,15 +1071,14 @@ describe("NutClient", () => {
         await first.promise;
 
         // A timeout desyncs the stream (no request IDs) → drop the connection to resync.
-        await expect(client.getVar("ups0", "battery.charge")).rejects.toThrow(NutTimeoutError);
+        await expect(client.setVar("ups0", "battery.charge", "1")).rejects.toThrow(NutTimeoutError);
         expect(client.isConnected).toBe(false);
 
         // …then it reconnects and commands work again on a clean stream.
         respond = true;
         await reconnected.promise;
         expect(client.isConnected).toBe(true);
-        const val = await client.getVar("ups0", "ups.load");
-        expect(val).toBe("15");
+        await client.setVar("ups0", "ups.load", "15");
 
         client.destroy();
       } finally {
@@ -1138,7 +1174,7 @@ describe("NutClient", () => {
       const server = net.createServer(socket => {
         socket.setEncoding("utf8");
         socket.on("data", (d: string) => {
-          if (d.includes("GET VAR")) {
+          if (d.includes("SET VAR")) {
             socket.write("x".repeat(MAX_LINE_BYTES + 64)); // no trailing "\n": an unterminated line
           }
         });
@@ -1148,7 +1184,7 @@ describe("NutClient", () => {
       try {
         const client = new NutClient("127.0.0.1", port, { commandTimeout: 10000 });
         await client.connect();
-        await expect(client.getVar("ups0", "ups.status")).rejects.toThrow(/line/i);
+        await expect(client.setVar("ups0", "ups.status", "x")).rejects.toThrow(/line/i);
         expect(client.isConnected).toBe(false);
         client.destroy();
       } finally {
@@ -1452,8 +1488,8 @@ describe("NutClient", () => {
 
     it("should handle values with escaped backslashes", async () => {
       const mock = createMockNutServer(cmd => {
-        if (cmd.startsWith("GET VAR")) {
-          return 'VAR ups0 test.var "path\\\\to\\\\file"';
+        if (cmd.startsWith("LIST VAR")) {
+          return ["BEGIN LIST VAR ups0", 'VAR ups0 test.var "path\\\\to\\\\file"', "END LIST VAR ups0"].join("\n");
         }
         return "ERR UNKNOWN-COMMAND";
       });
@@ -1461,8 +1497,8 @@ describe("NutClient", () => {
       try {
         const client = new NutClient("127.0.0.1", port);
         await client.connect();
-        const val = await client.getVar("ups0", "test.var");
-        expect(val).toBe("path\\to\\file");
+        const vars = await client.listVar("ups0");
+        expect(vars).toEqual([{ name: "test.var", value: "path\\to\\file" }]);
         client.destroy();
       } finally {
         await mock.stop();
@@ -1548,8 +1584,8 @@ describe("NutClient", () => {
         if (cmd === "LIST UPS") {
           return ["BEGIN LIST UPS", 'UPS ups0 "Secure UPS"', "END LIST UPS"];
         }
-        if (cmd.startsWith("GET VAR")) {
-          return 'VAR ups0 battery.charge "88"';
+        if (cmd.startsWith("SET VAR")) {
+          return "OK";
         }
         return "ERR UNKNOWN-COMMAND";
       });
@@ -1562,8 +1598,9 @@ describe("NutClient", () => {
         // Commands after the upgrade must travel over TLS and still parse correctly.
         const ups = await client.listUps();
         expect(ups).toEqual([{ name: "ups0", description: "Secure UPS" }]);
-        const charge = await client.getVar("ups0", "battery.charge");
-        expect(charge).toBe("88");
+        // …a single-line command too, not only the multi-line one.
+        await client.setVar("ups0", "battery.charge.low", "20");
+        expect(mock.commands).toContain('SET VAR ups0 battery.charge.low "20"');
         expect(mock.commands).toContain("STARTTLS");
 
         client.destroy();
@@ -1805,22 +1842,6 @@ describe("NutClient", () => {
     });
   });
 
-  describe("getVar", () => {
-    it("rejects an answer that is not a VAR line", async () => {
-      // NUT has no request IDs; a desynced or unexpected answer must not be handed on as a value.
-      const mock = createMockNutServer(cmd => (cmd.startsWith("GET VAR") ? "OK" : "ERR UNKNOWN-COMMAND"));
-      const port = await mock.start();
-      try {
-        const client = new NutClient("127.0.0.1", port);
-        await client.connect();
-        await expect(client.getVar("ups0", "battery.charge")).rejects.toThrow("Unexpected GET VAR response");
-        client.destroy();
-      } finally {
-        await mock.stop();
-      }
-    });
-  });
-
   describe("outgoing source address", () => {
     it("binds the connection to the configured local address", async () => {
       // The network-interface selector exists for multi-homed hosts; nothing exercised it, so a
@@ -1896,18 +1917,19 @@ describe("OK verification — a confirmation command is only successful on an OK
     }
   });
 
-  it("tracks the LOGIN of this connection and forgets it on LOGOUT", async () => {
+  it("sends the credential sequence and the LOGOUT in order", async () => {
+    // No client-side login bookkeeping any more: the getter that used to track it was the last
+    // remnant of design #30 (a permanent LOGIN on the live connection), which #32 reversed —
+    // nothing in production ever read it. What has to hold is the wire sequence.
     const mock = createMockNutServer(cmd => (cmd === "LOGOUT" ? "OK Goodbye" : "OK"));
     const port = await mock.start();
     try {
       const client = new NutClient("127.0.0.1", port);
       await client.connect();
-      expect(client.loggedIn).toBeNull();
       await client.authenticate("admin", "secret");
       await client.login("ups0");
-      expect(client.loggedIn).toBe("ups0");
       await client.logout();
-      expect(client.loggedIn).toBeNull();
+      expect(mock.commands).toEqual(["USERNAME admin", "PASSWORD secret", "LOGIN ups0", "LOGOUT"]);
       client.destroy();
     } finally {
       await mock.stop();

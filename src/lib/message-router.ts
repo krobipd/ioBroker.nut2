@@ -1,5 +1,5 @@
 import { authFailureText, type NutClient } from "./nut-client";
-import { coerceCommandTimeoutMs, coerceHost, coercePort, errText, localAddressOf } from "./coerce";
+import { coerceHost, coercePort, errText, nutClientOptionsFrom } from "./coerce";
 import { tText, tTextArgs } from "./i18n";
 import type { AdapterConfig, NutClientOptions, NutLogger } from "./types";
 
@@ -77,15 +77,9 @@ export async function dispatchMessage(obj: ioBroker.Message, deps: MessageRouter
         const username = typeof config.username === "string" ? config.username : "";
         const password = typeof config.password === "string" ? config.password : "";
 
-        // Mirror the production client so the test exercises the real path (multi-homed bind, TLS).
-        const localAddress = localAddressOf(config.networkInterface);
-        const options: NutClientOptions = {
-          localAddress,
-          commandTimeout: coerceCommandTimeoutMs(config.commandTimeout),
-          useTls: !!config.useTls,
-          tlsRejectUnauthorized: !!config.tlsRejectUnauthorized,
-          tlsCaFile: typeof config.tlsCaFile === "string" ? config.tlsCaFile : "",
-        };
+        // The SAME mapping the adapter builds its own clients from, so the test really exercises
+        // the production path (multi-homed bind, command deadline, TLS) instead of a look-alike.
+        const options = nutClientOptionsFrom(config);
 
         const testClient = deps.createTestClient(host, port, options);
         deps.onTestClientCreated?.(testClient);

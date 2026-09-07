@@ -41,6 +41,8 @@ For details and how to disable it, see the [Sentry plugin documentation](https:/
 - **ioBroker Admin >= 8.0.11**
 - A running [NUT server](https://networkupstools.org/) (upsd) with at least one UPS configured
 
+> The adapter CANNOT be installed via GitHub: The adapter must be installed via the ioBroker repository (stable or latest).
+
 ---
 
 ## Configuration
@@ -259,6 +261,19 @@ iobroker state set nut2.0.notify "$NOTIFYTYPE $UPSNAME"
     Placeholder for the next version (at the beginning of the line):
     ### **WORK IN PROGRESS**
 -->
+
+### **WORK IN PROGRESS**
+
+- Fixed: a data point no longer holds a value of the wrong kind — a reading that stops matching the data point's type is discarded with one warning instead of being written into it
+- Fixed: a NUT server that is switched off or restarting no longer makes the instance look broken — the adapter names the server it cannot reach and keeps retrying
+- Fixed: value limits taken from the UPS disappear again when the UPS stops reporting them, instead of standing forever and causing warnings about every value outside them
+- Fixed: credentials containing a space are now refused with an explanation instead of a bare protocol error nobody can act on
+- Fixed: enabling instant commands now says why no command buttons appear when the UPS does not answer the command list
+- Fixed: a UPS variable without a dot in its name is now writable, and can no longer take over one of the adapter's own channels
+- Fixed: over a third of the data points carried an English label in every language — 157 more variable names are now translated into all eleven
+- Fixed: the phases of a three-phase UPS, the sensors of a multi-sensor probe and the individual outlets no longer all share one name — each keeps the marker that says which one it is
+- Fixed: the outlet buttons of a PDU are now named and explained like every other command instead of showing their raw NUT name
+- New: explanations for the battery voltage, battery temperature, battery health and input current, which stood without one next to explained siblings
 
 ### 0.14.0 (2026-09-04)
 

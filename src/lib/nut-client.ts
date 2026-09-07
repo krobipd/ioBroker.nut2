@@ -42,6 +42,28 @@ export class NutTimeoutError extends Error {
   }
 }
 
+/**
+ * The connection is not usable right now — either it was never up, or it dropped while a command
+ * was in flight. This is a STATE of the persistent client, not a fault: `start()`'s retry loop is
+ * already bringing the connection back, so the caller should report it like any other "server not
+ * reachable" condition, not as an unexpected error.
+ *
+ * Its own class because the poll classifies what it catches. Before this existed, both cases
+ * arrived as a bare `Error` and fell through to `classifyError`'s "UNKNOWN" bucket, which logs at
+ * ERROR level — a red line in the ioBroker log every time a NUT server was restarted, while the
+ * warn line written for exactly that case ("Cannot reach NUT server — will keep retrying") could
+ * never be reached on this path.
+ */
+export class NutConnectionError extends Error {
+  /**
+   * @param message Why the connection is unusable
+   */
+  constructor(message: string) {
+    super(message);
+    this.name = "NutConnectionError";
+  }
+}
+
 // Errors from connect()/STARTTLS that signal a TLS *configuration* problem (server offers
 // no TLS, or its certificate was rejected) rather than a transient network failure.
 const TLS_FATAL_ERROR_CODES = new Set<string>([
@@ -138,8 +160,6 @@ export class NutClient {
   private ready = false;
   private destroyed = false;
   private tlsActive = false;
-  /** The UPS this connection is logged in to (LOGIN accepted) — null until then, reset per connection. */
-  private loggedInUps: string | null = null;
 
   private readonly host: string;
   private readonly port: number;
@@ -263,7 +283,7 @@ export class NutClient {
   connect(): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       if (this.destroyed) {
-        reject(new Error("Client has been destroyed"));
+        reject(new NutConnectionError("Client has been destroyed"));
         return;
       }
 
@@ -282,7 +302,7 @@ export class NutClient {
         this.connected = false;
         this.ready = false;
         sock?.destroy();
-        reject(new Error(`Connect to NUT server ${this.host}:${this.port} timed out`));
+        reject(new NutConnectionError(`Connect to NUT server ${this.host}:${this.port} timed out`));
       }, this.commandTimeout);
       const settle = (err?: Error): void => {
         if (settled) {
@@ -306,7 +326,6 @@ export class NutClient {
       const socket = net.createConnection(opts, () => {
         this.connected = true;
         this.tlsActive = false;
-        this.loggedInUps = null;
         this.buffer = "";
         this.log?.debug(`Connected to NUT server ${this.host}:${this.port}`);
         if (this.useTls) {
@@ -343,10 +362,9 @@ export class NutClient {
       const wasReady = this.ready;
       this.ready = false;
       this.connected = false;
-      this.loggedInUps = null;
       // Drain the WHOLE queue, not just the active command: a queued entry left behind would keep
       // a live command timer that fires later and tears down a subsequently-reconnected socket.
-      this.rejectAll(new Error("Connection closed"));
+      this.rejectAll(new NutConnectionError("Connection closed"));
       // Only the persistent runtime connection auto-reconnects on a drop; a one-shot
       // connect() (e.g. the connection test) must not.
       if (wasReady && !this.destroyed && this.persistent) {
@@ -464,7 +482,7 @@ export class NutClient {
 
   /** Reject all pending and queued commands. */
   cancelAll(): void {
-    this.rejectAll(new Error("Client cancelled"));
+    this.rejectAll(new NutConnectionError("Client cancelled"));
   }
 
   /**
@@ -607,25 +625,6 @@ export class NutClient {
   }
 
   /**
-   * Get a single variable value.
-   *
-   * @param ups UPS name
-   * @param varName Variable name
-   */
-  async getVar(ups: string, varName: string): Promise<string> {
-    const bad = tokenError(ups, "UPS name") ?? tokenError(varName, "variable name");
-    if (bad) {
-      throw bad;
-    }
-    const lines = await this.sendCommand(`GET VAR ${ups} ${varName}`, false);
-    const match = /^VAR\s+\S+\s+\S+\s+"((?:[^"\\]|\\.)*)"/.exec(lines[0]);
-    if (!match) {
-      throw new Error(`Unexpected GET VAR response: ${lines[0]}`);
-    }
-    return unescapeNut(match[1]);
-  }
-
-  /**
    * Set a writable variable.
    *
    * @param ups UPS name
@@ -661,6 +660,20 @@ export class NutClient {
    * @param password NUT password
    */
   async authenticate(username: string, password: string): Promise<void> {
+    // The protocol token guard covers every other unquoted wire argument; these two used to slip
+    // past it, and the failure was unreadable. `USERNAME`/`PASSWORD` take exactly one argument
+    // (`numarg != 1` → ERR INVALID-ARGUMENT, server/netuser.c:147 and :167 of NUT 2.8.5), so a
+    // space turns one argument into two and upsd answers with a bare INVALID-ARGUMENT that names
+    // nothing. Refuse it here and say what is wrong instead.
+    //
+    // Not quoted on the wire on purpose: NUT's own clients all send these unquoted
+    // (clients/upsmon.c:571/585, upscmd.c:504/522, upsrw.c:286/301, upsset.c:528/550), so a
+    // credential with a space is a NUT-wide limitation, not something this adapter may paper over
+    // with a behaviour no official client has.
+    const bad = credentialError(username, "username") ?? credentialError(password, "password");
+    if (bad) {
+      throw bad;
+    }
     // upsd only STORES these two (server/netuser.c) — nothing is verified until login().
     await this.sendOk(`USERNAME ${username}`);
     await this.sendOk(`PASSWORD ${password}`);
@@ -677,19 +690,12 @@ export class NutClient {
       throw bad;
     }
     await this.sendOk(`LOGIN ${ups}`);
-    this.loggedInUps = ups;
-  }
-
-  /** The UPS this connection is logged in to after an accepted LOGIN, or null. */
-  get loggedIn(): string | null {
-    return this.loggedInUps;
   }
 
   /** Best-effort LOGOUT (graceful lifecycle; ignores errors). */
   async logout(): Promise<void> {
     try {
       await this.sendOk("LOGOUT");
-      this.loggedInUps = null;
     } catch {
       // Ignore — we are shutting down anyway.
     }
@@ -724,7 +730,7 @@ export class NutClient {
         return;
       }
       if (!this.connected || !this.socket) {
-        reject(new Error("Not connected"));
+        reject(new NutConnectionError("Not connected"));
         return;
       }
 
@@ -891,6 +897,33 @@ export class NutClient {
 function tokenError(value: string, what: string): Error | null {
   if (value.length === 0 || /[\s"\\]/.test(value)) {
     return new Error(`Invalid NUT ${what}: ${JSON.stringify(value)}`);
+  }
+  return null;
+}
+
+/**
+ * Same wire rule as {@link tokenError}, for the two credential arguments — but the message never
+ * shows the value. Username and password are `protectedNative`/`encryptedNative`; an error text
+ * ends up in the log and in the admin's connection-test answer, so it says WHAT is wrong, not what
+ * was entered.
+ *
+ * @param value The credential about to be placed on the command line
+ * @param what "username" or "password", for the message
+ * @returns the error to throw with, or null when the credential can go on the wire
+ */
+function credentialError(value: string, what: string): Error | null {
+  if (value.length === 0) {
+    return new Error(`The NUT ${what} is empty`);
+  }
+  if (/\s/.test(value)) {
+    return new Error(
+      `The NUT ${what} contains a space (or tab) — the NUT protocol cannot carry one: upsd reads the rest as a second argument and answers ERR INVALID-ARGUMENT. Choose a ${what} without whitespace in upsd.users.`,
+    );
+  }
+  if (/["\\]/.test(value)) {
+    return new Error(
+      `The NUT ${what} contains a quote or a backslash — the NUT protocol cannot carry those unquoted; the server would read a different value than you entered. Choose a ${what} without " and \\ in upsd.users.`,
+    );
   }
   return null;
 }

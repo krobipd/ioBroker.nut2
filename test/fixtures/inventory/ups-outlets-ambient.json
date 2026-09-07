@@ -1,0 +1,72 @@
+{
+  "name": "ups-outlets-ambient",
+  "description": "UPS with switchable outlets, outlet groups and ambient sensors",
+  "vars": {
+    "device.type": "ups",
+    "device.mfr": "Eaton",
+    "device.model": "ePDU",
+    "ups.status": "OL",
+    "outlet.count": "3",
+    "outlet.desc": "Main outlets",
+    "outlet.switchable": "yes",
+    "outlet.1.id": "1",
+    "outlet.1.desc": "Outlet 1",
+    "outlet.1.status": "on",
+    "outlet.1.switchable": "yes",
+    "outlet.1.current": "0.8",
+    "outlet.1.delay.shutdown": "20",
+    "outlet.2.id": "2",
+    "outlet.2.desc": "Outlet 2",
+    "outlet.2.status": "on",
+    "outlet.2.switchable": "yes",
+    "outlet.2.current": "0.8",
+    "outlet.2.delay.shutdown": "20",
+    "outlet.3.id": "3",
+    "outlet.3.desc": "Outlet 3",
+    "outlet.3.status": "on",
+    "outlet.3.switchable": "yes",
+    "outlet.3.current": "0.8",
+    "outlet.3.delay.shutdown": "20",
+    "outlet.group.1.id": "1",
+    "outlet.group.1.status": "on",
+    "outlet.group.1.type": "outlet-section",
+    "outlet.group.2.id": "2",
+    "outlet.group.2.status": "on",
+    "outlet.group.2.type": "outlet-section",
+    "ambient.1.temperature": "23.5",
+    "ambient.1.humidity": "48.0",
+    "ambient.1.temperature.status": "good",
+    "ambient.1.humidity.alarm": "enabled",
+    "ambient.1.present": "yes",
+    "ambient.1.contacts.1.status": "closed",
+    "ambient.1.contacts.2.status": "closed",
+    "ambient.2.temperature": "23.5",
+    "ambient.2.humidity": "48.0",
+    "ambient.2.temperature.status": "good",
+    "ambient.2.humidity.alarm": "enabled",
+    "ambient.2.present": "yes",
+    "ambient.2.contacts.1.status": "closed",
+    "ambient.2.contacts.2.status": "closed"
+  },
+  "rw": {
+    "outlet.1.status": "on",
+    "ambient.1.humidity.alarm": "enabled"
+  },
+  "enum": {
+    "outlet.1.status": [
+      "on",
+      "off"
+    ],
+    "ambient.1.humidity.alarm": [
+      "enabled",
+      "disabled"
+    ]
+  },
+  "range": {},
+  "cmd": [
+    "outlet.1.load.off",
+    "outlet.1.load.on",
+    "outlet.1.load.cycle",
+    "beeper.mute"
+  ]
+}

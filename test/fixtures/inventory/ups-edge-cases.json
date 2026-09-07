@@ -1,0 +1,42 @@
+{
+  "name": "ups-edge-cases",
+  "description": "Every special case the adapter has explicit code for",
+  "vars": {
+    "device.type": "ups",
+    "device.mfr": "Edge  ",
+    "device.model": "Case 1 ",
+    "ups.status": "OB LB DISCHRG RB OVER ALARM TRIM BOOST CAL BYPASS FSD WAIT ECO TEST OVERHEAT SOMETHINGNEW",
+    "driver.flag.ignorelb": "enabled",
+    "driver.flag.allow_killpower": "0",
+    "driver.flag.weird": "2",
+    "ups.timer.shutdown": "-1",
+    "ups.timer.start": "NotActive",
+    "ups.timer.reboot": "CountdownExpired",
+    "battery.charger.status": "resting",
+    "battery.packs": "2",
+    "input.phases": "1",
+    "ups.load": "0",
+    "device.part": "0012345",
+    "ups.firmware": "v1.2 \"beta\" \\ build",
+    "battery.voltage": "13.6",
+    "battery.runtime": "3600",
+    "ups.efficiency": "97",
+    "ups.realpower": "540",
+    "ups.power": "900",
+    "input.transfer.low": "196",
+    "input.transfer.high": "253",
+    "input.frequency.nominal.range": "5",
+    "ambient.humidity": "40.0",
+    "battery.energysave.delay": "5",
+    "input.phase.shift": "120"
+  },
+  "rw": {
+    "driver.flag.ignorelb": "enabled",
+    "ups.timer.shutdown": "-1"
+  },
+  "enum": {},
+  "range": {
+    "ups.timer.shutdown": [["0", "300"]]
+  },
+  "cmd": ["load.off", "driver.private.unknown"]
+}

@@ -1,0 +1,19 @@
+{
+  "name": "device-ats",
+  "description": "Automatic transfer switch (device.type = ats)",
+  "vars": {
+    "device.type": "ats",
+    "device.mfr": "Generic",
+    "device.model": "Automatic transfer switch",
+    "device.serial": "SN-ATS-001",
+    "ups.status": "OL",
+    "input.voltage": "230.0",
+    "output.voltage": "230.0",
+    "outlet.count": "2",
+    "device.description": "Automatic transfer switch"
+  },
+  "rw": {},
+  "enum": {},
+  "range": {},
+  "cmd": ["beeper.disable"]
+}

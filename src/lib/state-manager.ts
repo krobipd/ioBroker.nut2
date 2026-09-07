@@ -1,6 +1,6 @@
 import type * as utils from "@iobroker/adapter-core";
 import { tDesc, tName, tRaw, tText, type I18nKey } from "./i18n";
-import { ALL_FLAG_KEYS, FLAG_META, getDisplayEntries, parseStatus } from "./status-parser";
+import { ALL_FLAG_KEYS, descKeyOf, FLAG_META, getDisplayEntries, parseStatus } from "./status-parser";
 import { detectStates, detectType } from "./type-detector";
 import type { NutCommand, NutVariable } from "./types";
 
@@ -20,6 +20,13 @@ const CHANNEL_I18N: Record<string, I18nKey> = {
   info: "channelUpsInfo",
 };
 
+/**
+ * Channels the adapter owns rather than the NUT server: the parsed status flags, the per-UPS info
+ * channel and the instant-command buttons. A NUT variable is never allowed to take one of these
+ * ids — see {@link StateManager.updateVariables}.
+ */
+const ADAPTER_OWNED_CHANNELS = new Set(["info", "status", "commands"]);
+
 const COMMAND_I18N: Record<string, I18nKey> = {
   "beeper.disable": "cmdBeeperDisable",
   "beeper.enable": "cmdBeeperEnable",
@@ -29,6 +36,9 @@ const COMMAND_I18N: Record<string, I18nKey> = {
   "load.on": "cmdLoadOn",
   "load.off.delay": "cmdLoadOffDelay",
   "load.on.delay": "cmdLoadOnDelay",
+  "outlet.load.off": "cmdOutletLoadOff",
+  "outlet.load.on": "cmdOutletLoadOn",
+  "outlet.load.cycle": "cmdOutletLoadCycle",
   "shutdown.default": "cmdShutdownDefault",
   "shutdown.return": "cmdShutdownReturn",
   "shutdown.stayoff": "cmdShutdownStayoff",
@@ -54,72 +64,308 @@ const COMMAND_I18N: Record<string, I18nKey> = {
 };
 
 const TRANSLATED_VARIABLES = new Set<I18nKey>([
+  "ambient.contacts.status",
+  "ambient.humidity",
+  "ambient.humidity.alarm",
+  "ambient.present",
+  "ambient.temperature",
+  "ambient.temperature.status",
+  "battery.alarm.threshold",
+  "battery.capacity",
+  "battery.capacity.nominal",
   "battery.charge",
+  "battery.charge.approx",
   "battery.charge.low",
+  "battery.charge.restart",
+  "battery.charge.warning",
+  "battery.charger.status",
+  "battery.charger.type",
+  "battery.current",
+  "battery.current.total",
+  "battery.date",
+  "battery.date.maintenance",
+  "battery.energysave",
+  "battery.energysave.delay",
+  "battery.energysave.load",
+  "battery.energysave.realpower",
+  "battery.mfr.date",
+  "battery.packs",
+  "battery.packs.bad",
+  "battery.packs.external",
+  "battery.protection",
   "battery.runtime",
+  "battery.runtime.low",
+  "battery.runtime.restart",
+  "battery.status",
+  "battery.temperature",
+  "battery.temperature.cell.max",
+  "battery.temperature.cell.min",
   "battery.type",
   "battery.voltage",
-  "battery.temperature",
-  "battery.capacity",
-  "battery.charger.status",
+  "battery.voltage.cell.max",
+  "battery.voltage.cell.min",
+  "battery.voltage.high",
+  "battery.voltage.low",
+  "battery.voltage.nominal",
+  "current.high.critical",
+  "current.high.warning",
+  "current.low.critical",
+  "current.low.warning",
+  "current.maximum",
+  "current.minimum",
+  "current.peak",
+  "current.status",
+  "device.contact",
+  "device.count",
+  "device.description",
+  "device.location",
+  "device.macaddr",
   "device.mfr",
   "device.model",
+  "device.part",
   "device.serial",
   "device.type",
+  "device.uptime",
+  "device.usb.version",
+  "driver.flag.allow_killpower",
+  "driver.flag.ignorelb",
   "driver.name",
-  "driver.version",
-  "driver.version.data",
-  "driver.version.internal",
   "driver.parameter.pollfreq",
   "driver.parameter.pollinterval",
   "driver.parameter.port",
   "driver.parameter.synchronous",
-  "driver.flag.ignorelb",
+  "driver.state",
+  "driver.version",
+  "driver.version.data",
+  "driver.version.internal",
   "driver.version.usb",
-  "input.voltage",
+  "frequency.nominal",
+  "input.bypass.frequency",
+  "input.bypass.switch.off",
+  "input.bypass.switch.on",
+  "input.bypass.switchable",
+  "input.bypass.voltage",
+  "input.current",
+  "input.current.high.critical",
+  "input.current.high.warning",
+  "input.current.low.critical",
+  "input.current.low.warning",
+  "input.current.nominal",
+  "input.current.status",
+  "input.eco.switchable",
+  "input.feed.color",
+  "input.feed.desc",
   "input.frequency",
+  "input.frequency.extended",
+  "input.frequency.high",
+  "input.frequency.low",
+  "input.frequency.nominal",
+  "input.frequency.nominal.range",
+  "input.frequency.status",
+  "input.load",
+  "input.phase.shift",
+  "input.phases",
+  "input.power",
+  "input.quality",
+  "input.realpower",
+  "input.realpower.nominal",
+  "input.sensitivity",
+  "input.source",
+  "input.source.preferred",
+  "input.transfer.boost.high",
+  "input.transfer.boost.low",
+  "input.transfer.bypass.forced",
+  "input.transfer.bypass.high",
+  "input.transfer.bypass.low",
+  "input.transfer.bypass.outlimits",
+  "input.transfer.bypass.overload",
+  "input.transfer.delay",
+  "input.transfer.eco.high",
+  "input.transfer.eco.low",
+  "input.transfer.frequency.bypass.range",
+  "input.transfer.frequency.eco.range",
   "input.transfer.high",
+  "input.transfer.high.max",
+  "input.transfer.high.min",
+  "input.transfer.hysteresis",
   "input.transfer.low",
+  "input.transfer.low.max",
+  "input.transfer.low.min",
+  "input.transfer.reason",
+  "input.transfer.trim.high",
+  "input.transfer.trim.low",
+  "input.voltage",
   "input.voltage.extended",
-  "output.voltage",
-  "output.frequency",
-  "output.voltage.nominal",
-  "output.frequency.nominal",
+  "input.voltage.high.critical",
+  "input.voltage.high.warning",
+  "input.voltage.low.critical",
+  "input.voltage.low.warning",
+  "input.voltage.maximum",
+  "input.voltage.minimum",
+  "input.voltage.nominal",
+  "input.voltage.status",
+  "outlet.count",
+  "outlet.current",
+  "outlet.delay.shutdown",
+  "outlet.desc",
+  "outlet.group.id",
+  "outlet.group.status",
+  "outlet.group.type",
+  "outlet.id",
+  "outlet.status",
+  "outlet.switchable",
   "output.current",
-  "ups.status",
-  "ups.load",
-  "ups.power",
-  "ups.realpower",
-  "ups.power.nominal",
-  "ups.temperature",
+  "output.current.nominal",
+  "output.frequency",
+  "output.frequency.nominal",
+  "output.inverter.latency",
+  "output.phases",
+  "output.power",
+  "output.voltage",
+  "output.voltage.nominal",
+  "power.maximum",
+  "power.maximum.percent",
+  "power.minimum",
+  "power.minimum.percent",
+  "power.percent",
+  "ups.alarm",
+  "ups.beeper.status",
+  "ups.contacts",
+  "ups.date",
+  "ups.delay.reboot",
   "ups.delay.shutdown",
   "ups.delay.start",
+  "ups.display.language",
+  "ups.efficiency",
+  "ups.firmware",
+  "ups.firmware.aux",
+  "ups.id",
+  "ups.load",
+  "ups.load.high",
+  "ups.mfr",
+  "ups.mfr.date",
+  "ups.mode",
+  "ups.model",
+  "ups.power",
+  "ups.power.nominal",
+  "ups.productid",
+  "ups.realpower",
+  "ups.realpower.nominal",
+  "ups.serial",
+  "ups.shutdown",
+  "ups.start.auto",
+  "ups.start.battery",
+  "ups.start.reboot",
+  "ups.status",
+  "ups.temperature",
+  "ups.test.date",
+  "ups.test.interval",
+  "ups.test.result",
+  "ups.time",
+  "ups.timer.reboot",
   "ups.timer.shutdown",
   "ups.timer.start",
-  "ups.firmware",
-  "ups.beeper.status",
-  "ups.mfr",
-  "ups.model",
-  "ups.serial",
+  "ups.type",
   "ups.vendorid",
-  "ups.productid",
-  "outlet.desc",
-  "outlet.id",
-  "outlet.switchable",
-  "outlet.status",
-  "ambient.temperature",
-  "ambient.humidity",
+  "ups.watchdog.status",
+  "voltage.high.critical",
+  "voltage.high.warning",
+  "voltage.low.critical",
+  "voltage.low.warning",
+  "voltage.maximum",
+  "voltage.minimum",
+  "voltage.nominal",
+  "voltage.status",
 ] as I18nKey[]);
+
+/**
+ * Split a per-instance or phase segment (`ambient.2.`, `input.L1.`, `input.L1-L2.`, `input.N.`) off
+ * the variable name, so three-phase and multi-sensor readings reuse the label and the explanation
+ * of the variable they are a variant of — while keeping the segment that tells them apart.
+ *
+ * One definition for all three lookups: name, marker and description have to collapse identically,
+ * and when the rule lived twice a change to one of them would have split a variant's label from its
+ * explanation without any test noticing.
+ *
+ * @param nutVarName NUT variable name
+ * @returns base name and the markers found, or undefined when the name carries no variant segment
+ */
+function splitVariant(nutVarName: string): { generic: string; markers: string[] } | undefined {
+  const markers: string[] = [];
+  // Global on purpose: a name can carry TWO variant segments. `ambient.1.contacts.1.status` is a
+  // real catalog variable, and collapsing only the first one left `ambient.contacts.1.status` —
+  // a name the catalog does not know, so the sensor's contacts had neither a translated label nor
+  // an explanation. No catalog name loses meaning by collapsing every variant segment.
+  const generic = nutVarName.replace(/\.(\d+|L\d(-(L\d|N))?|N)\./g, (_match, segment: string) => {
+    markers.push(segment);
+    return ".";
+  });
+  return markers.length ? { generic, markers } : undefined;
+}
+
+/**
+ * Collapse a variant name to its base name.
+ *
+ * @param nutVarName NUT variable name
+ * @returns the base name, or undefined when the name carries no variant segment
+ */
+function genericVariantOf(nutVarName: string): string | undefined {
+  return splitVariant(nutVarName)?.generic;
+}
+
+/**
+ * Put the variant markers back in front of a base label, in the shape the untranslated fallback
+ * produces them (`L1 current`).
+ *
+ * Without this, every variant of a catalogued variable carries the SAME label as its siblings:
+ * the three `input.Lx.voltage` of a three-phase UPS were all called "Input voltage", and so were
+ * both `ambient.n.temperature` and all three `outlet.n.status`. The translation is worth nothing
+ * if it costs the reader the one segment that says WHICH phase, sensor or outlet is meant.
+ *
+ * @param label Translated base label
+ * @param markers Variant segments, in the order they appear in the variable name
+ */
+function withVariantMarker(label: LocalizedName, markers: string[]): LocalizedName {
+  if (markers.length === 0) {
+    return label;
+  }
+  const prefix = `${markers.join(" ")} `;
+  if (typeof label === "string") {
+    return `${prefix}${label}`;
+  }
+  return Object.fromEntries(Object.entries(label).map(([lang, text]) => [lang, `${prefix}${text}`])) as LocalizedName;
+}
+
+/**
+ * The catalog entry behind an instant command, plus the variant markers it carried.
+ *
+ * `outlet.n.load.off` and its two siblings are per-outlet VARIANTS of one documented command, so
+ * they resolve through the same collapse as a variable — with the outlet number kept in front.
+ * Without it a PDU showed "Outlet 1 load off" in all eleven languages and explained nothing, while
+ * the very same button on a UPS without outlets was translated.
+ *
+ * Returns the KEY rather than the finished texts so `tName`/`tDesc` stay at the call site, where
+ * the state-role gate can see that neither is built from a runtime value.
+ *
+ * @param cmdName NUT command name
+ */
+function commandCatalogEntry(cmdName: string): { key: I18nKey; markers: string[] } | undefined {
+  const direct = COMMAND_I18N[cmdName];
+  if (direct) {
+    return { key: direct, markers: [] };
+  }
+  const variant = splitVariant(cmdName);
+  const key = variant ? COMMAND_I18N[variant.generic] : undefined;
+  return key && variant ? { key, markers: variant.markers } : undefined;
+}
 
 function varTranslation(nutVarName: string): LocalizedName | undefined {
   if (TRANSLATED_VARIABLES.has(nutVarName as I18nKey)) {
     return tName(nutVarName as I18nKey);
   }
-  // Collapse a per-instance or phase segment (ambient.2., input.L1., input.L1-L2., input.N.) to
-  // the base name so three-phase and multi-sensor variables reuse the translated base label.
-  const generic = nutVarName.replace(/\.(\d+|L\d(-(L\d|N))?|N)\./, ".");
-  if (generic !== nutVarName && TRANSLATED_VARIABLES.has(generic as I18nKey)) {
-    return tName(generic as I18nKey);
+  const variant = splitVariant(nutVarName);
+  if (variant && TRANSLATED_VARIABLES.has(variant.generic as I18nKey)) {
+    return withVariantMarker(tName(variant.generic as I18nKey), variant.markers);
   }
   return undefined;
 }
@@ -200,38 +446,191 @@ const VALUE_I18N: Record<string, I18nKey> = {
  * none (fleet rule — `common.desc` stays empty where there is nothing to explain).
  */
 const VAR_DESC_I18N: Record<string, I18nKey> = {
+  "ambient.contacts.status": "descAmbientContactsStatus",
+  "ambient.humidity": "descAmbientHumidity",
+  "ambient.humidity.alarm": "descAmbientHumidityAlarm",
+  "ambient.present": "descAmbientPresent",
+  "ambient.temperature": "descAmbientTemperature",
+  "ambient.temperature.status": "descAmbientTemperatureStatus",
+  "battery.alarm.threshold": "descBatteryAlarmThreshold",
+  "battery.capacity": "descBatteryCapacity",
+  "battery.capacity.nominal": "descBatteryCapacityNominal",
   "battery.charge": "descBatteryCharge",
+  "battery.charge.approx": "descBatteryChargeApprox",
   "battery.charge.low": "descBatteryChargeLow",
-  "battery.runtime": "descBatteryRuntime",
-  "battery.type": "descBatteryType",
+  "battery.charge.restart": "descBatteryChargeRestart",
+  "battery.charge.warning": "descBatteryChargeWarning",
   "battery.charger.status": "descBatteryChargerStatus",
+  "battery.charger.type": "descBatteryChargerType",
+  "battery.current": "descBatteryCurrent",
+  "battery.current.total": "descBatteryCurrentTotal",
+  "battery.date.maintenance": "descBatteryDateMaintenance",
+  "battery.energysave": "descBatteryEnergysave",
+  "battery.energysave.delay": "descBatteryEnergysaveDelay",
+  "battery.energysave.load": "descBatteryEnergysaveLoad",
+  "battery.energysave.realpower": "descBatteryEnergysaveRealpower",
+  "battery.packs": "descBatteryPacks",
+  "battery.packs.bad": "descBatteryPacksBad",
+  "battery.packs.external": "descBatteryPacksExternal",
+  "battery.protection": "descBatteryProtection",
+  "battery.runtime": "descBatteryRuntime",
+  "battery.runtime.low": "descBatteryRuntimeLow",
+  "battery.runtime.restart": "descBatteryRuntimeRestart",
+  "battery.status": "descBatteryStatus",
+  "battery.temperature": "descBatteryTemperature",
+  "battery.temperature.cell.max": "descBatteryTemperatureCellMax",
+  "battery.temperature.cell.min": "descBatteryTemperatureCellMin",
+  "battery.type": "descBatteryType",
+  "battery.voltage": "descBatteryVoltage",
+  "battery.voltage.cell.max": "descBatteryVoltageCellMax",
+  "battery.voltage.cell.min": "descBatteryVoltageCellMin",
+  "battery.voltage.high": "descBatteryVoltageHigh",
+  "battery.voltage.low": "descBatteryVoltageLow",
+  "battery.voltage.nominal": "descBatteryVoltageNominal",
+  "current.high.critical": "descCurrentHighCritical",
+  "current.high.warning": "descCurrentHighWarning",
+  "current.low.critical": "descCurrentLowCritical",
+  "current.low.warning": "descCurrentLowWarning",
+  "current.maximum": "descCurrentMaximum",
+  "current.minimum": "descCurrentMinimum",
+  "current.peak": "descCurrentPeak",
+  "current.status": "descCurrentStatus",
+  "device.count": "descDeviceCount",
+  "device.macaddr": "descDeviceMacaddr",
+  "device.part": "descDevicePart",
   "device.type": "descDeviceType",
+  "device.uptime": "descDeviceUptime",
+  "device.usb.version": "descDeviceUsbVersion",
+  "driver.flag.allow_killpower": "descDriverFlagAllowKillpower",
   "driver.flag.ignorelb": "descDriverFlagIgnorelb",
   "driver.parameter.pollfreq": "descDriverParameterPollfreq",
   "driver.parameter.pollinterval": "descDriverParameterPollinterval",
-  "input.transfer.high": "descInputTransferHigh",
-  "input.transfer.low": "descInputTransferLow",
-  "input.voltage": "descInputVoltage",
+  "driver.state": "descDriverState",
+  "frequency.nominal": "descFrequencyNominal",
+  "input.bypass.frequency": "descInputBypassFrequency",
+  "input.bypass.switch.off": "descInputBypassSwitchOff",
+  "input.bypass.switch.on": "descInputBypassSwitchOn",
+  "input.bypass.switchable": "descInputBypassSwitchable",
+  "input.bypass.voltage": "descInputBypassVoltage",
+  "input.current": "descInputCurrent",
+  "input.current.high.critical": "descInputCurrentHighCritical",
+  "input.current.high.warning": "descInputCurrentHighWarning",
+  "input.current.low.critical": "descInputCurrentLowCritical",
+  "input.current.low.warning": "descInputCurrentLowWarning",
+  "input.current.nominal": "descInputCurrentNominal",
+  "input.current.status": "descInputCurrentStatus",
+  "input.eco.switchable": "descInputEcoSwitchable",
+  "input.feed.color": "descInputFeedColor",
+  "input.feed.desc": "descInputFeedDesc",
   "input.frequency": "descInputFrequency",
+  "input.frequency.extended": "descInputFrequencyExtended",
+  "input.frequency.high": "descInputFrequencyHigh",
+  "input.frequency.low": "descInputFrequencyLow",
+  "input.frequency.nominal": "descInputFrequencyNominal",
+  "input.frequency.nominal.range": "descInputFrequencyNominalRange",
+  "input.frequency.status": "descInputFrequencyStatus",
+  "input.load": "descInputLoad",
+  "input.phase.shift": "descInputPhaseShift",
+  "input.phases": "descInputPhases",
+  "input.power": "descInputPower",
+  "input.quality": "descInputQuality",
+  "input.realpower": "descInputRealpower",
+  "input.realpower.nominal": "descInputRealpowerNominal",
+  "input.sensitivity": "descInputSensitivity",
+  "input.source": "descInputSource",
+  "input.source.preferred": "descInputSourcePreferred",
+  "input.transfer.boost.high": "descInputTransferBoostHigh",
+  "input.transfer.boost.low": "descInputTransferBoostLow",
+  "input.transfer.bypass.forced": "descInputTransferBypassForced",
+  "input.transfer.bypass.high": "descInputTransferBypassHigh",
+  "input.transfer.bypass.low": "descInputTransferBypassLow",
+  "input.transfer.bypass.outlimits": "descInputTransferBypassOutlimits",
+  "input.transfer.bypass.overload": "descInputTransferBypassOverload",
+  "input.transfer.delay": "descInputTransferDelay",
+  "input.transfer.eco.high": "descInputTransferEcoHigh",
+  "input.transfer.eco.low": "descInputTransferEcoLow",
+  "input.transfer.frequency.bypass.range": "descInputTransferFrequencyBypassRange",
+  "input.transfer.frequency.eco.range": "descInputTransferFrequencyEcoRange",
+  "input.transfer.high": "descInputTransferHigh",
+  "input.transfer.high.max": "descInputTransferHighMax",
+  "input.transfer.high.min": "descInputTransferHighMin",
+  "input.transfer.hysteresis": "descInputTransferHysteresis",
+  "input.transfer.low": "descInputTransferLow",
+  "input.transfer.low.max": "descInputTransferLowMax",
+  "input.transfer.low.min": "descInputTransferLowMin",
+  "input.transfer.reason": "descInputTransferReason",
+  "input.transfer.trim.high": "descInputTransferTrimHigh",
+  "input.transfer.trim.low": "descInputTransferTrimLow",
+  "input.voltage": "descInputVoltage",
   "input.voltage.extended": "descInputVoltageExtended",
+  "input.voltage.high.critical": "descInputVoltageHighCritical",
+  "input.voltage.high.warning": "descInputVoltageHighWarning",
+  "input.voltage.low.critical": "descInputVoltageLowCritical",
+  "input.voltage.low.warning": "descInputVoltageLowWarning",
+  "input.voltage.maximum": "descInputVoltageMaximum",
+  "input.voltage.minimum": "descInputVoltageMinimum",
+  "input.voltage.nominal": "descInputVoltageNominal",
+  "input.voltage.status": "descInputVoltageStatus",
+  "outlet.count": "descOutletCount",
+  "outlet.current": "descOutletCurrent",
+  "outlet.delay.shutdown": "descOutletDelayShutdown",
+  "outlet.desc": "descOutletDesc",
+  "outlet.group.id": "descOutletGroupId",
+  "outlet.group.status": "descOutletGroupStatus",
+  "outlet.group.type": "descOutletGroupType",
+  "outlet.id": "descOutletId",
+  "outlet.status": "descOutletStatus",
+  "outlet.switchable": "descOutletSwitchable",
+  "output.current": "descOutputCurrent",
+  "output.current.nominal": "descOutputCurrentNominal",
+  "output.frequency": "descOutputFrequency",
+  "output.frequency.nominal": "descOutputFrequencyNominal",
+  "output.inverter.latency": "descOutputInverterLatency",
+  "output.phases": "descOutputPhases",
+  "output.power": "descOutputPower",
   "output.voltage": "descOutputVoltage",
   "output.voltage.nominal": "descOutputVoltageNominal",
-  "output.frequency.nominal": "descOutputFrequencyNominal",
-  "ups.status": "descUpsStatus",
-  "ups.load": "descUpsLoad",
-  "ups.power": "descUpsPower",
-  "ups.realpower": "descUpsRealpower",
-  "ups.power.nominal": "descUpsPowerNominal",
+  "power.maximum": "descPowerMaximum",
+  "power.maximum.percent": "descPowerMaximumPercent",
+  "power.minimum": "descPowerMinimum",
+  "power.minimum.percent": "descPowerMinimumPercent",
+  "power.percent": "descPowerPercent",
+  "ups.alarm": "descUpsAlarm",
+  "ups.beeper.status": "descUpsBeeperStatus",
+  "ups.contacts": "descUpsContacts",
+  "ups.delay.reboot": "descUpsDelayReboot",
   "ups.delay.shutdown": "descUpsDelayShutdown",
   "ups.delay.start": "descUpsDelayStart",
+  "ups.display.language": "descUpsDisplayLanguage",
+  "ups.efficiency": "descUpsEfficiency",
+  "ups.load": "descUpsLoad",
+  "ups.load.high": "descUpsLoadHigh",
+  "ups.mode": "descUpsMode",
+  "ups.power": "descUpsPower",
+  "ups.power.nominal": "descUpsPowerNominal",
+  "ups.realpower": "descUpsRealpower",
+  "ups.realpower.nominal": "descUpsRealpowerNominal",
+  "ups.shutdown": "descUpsShutdown",
+  "ups.start.auto": "descUpsStartAuto",
+  "ups.start.battery": "descUpsStartBattery",
+  "ups.start.reboot": "descUpsStartReboot",
+  "ups.status": "descUpsStatus",
+  "ups.temperature": "descUpsTemperature",
+  "ups.test.date": "descUpsTestDate",
+  "ups.test.interval": "descUpsTestInterval",
+  "ups.test.result": "descUpsTestResult",
+  "ups.timer.reboot": "descUpsTimerReboot",
   "ups.timer.shutdown": "descUpsTimerShutdown",
   "ups.timer.start": "descUpsTimerStart",
-  "ups.beeper.status": "descUpsBeeperStatus",
-  "ups.temperature": "descUpsTemperature",
-  "outlet.switchable": "descOutletSwitchable",
-  "outlet.status": "descOutletStatus",
-  "ambient.temperature": "descAmbientTemperature",
-  "ambient.humidity": "descAmbientHumidity",
+  "ups.watchdog.status": "descUpsWatchdogStatus",
+  "voltage.high.critical": "descVoltageHighCritical",
+  "voltage.high.warning": "descVoltageHighWarning",
+  "voltage.low.critical": "descVoltageLowCritical",
+  "voltage.low.warning": "descVoltageLowWarning",
+  "voltage.maximum": "descVoltageMaximum",
+  "voltage.minimum": "descVoltageMinimum",
+  "voltage.nominal": "descVoltageNominal",
+  "voltage.status": "descVoltageStatus",
 };
 
 /** Explanations for the channels — what kind of readings live below them. */
@@ -261,8 +660,8 @@ function varDescription(nutVarName: string): LocalizedName | undefined {
   if (key) {
     return tDesc(key);
   }
-  const generic = nutVarName.replace(/\.(\d+|L\d(-(L\d|N))?|N)\./, ".");
-  const genericKey = VAR_DESC_I18N[generic];
+  const generic = genericVariantOf(nutVarName);
+  const genericKey = generic ? VAR_DESC_I18N[generic] : undefined;
   return genericKey ? tDesc(genericKey) : undefined;
 }
 
@@ -294,8 +693,18 @@ const NO_DESCRIPTION = "Description unavailable";
 export class StateManager {
   private readonly adapter: utils.AdapterInstance;
   private readonly createdIds = new Set<string>();
-  /** NUT variables already warned about as garbage in a numeric field (warn once). */
+  /** NUT variables already warned about as a value that does not fit its field (warn once). */
   private readonly warnedGarbageVars = new Set<string>();
+  /**
+   * stateId → the `common.type` the object was actually created with in THIS runtime.
+   *
+   * `ensureState` writes an object once per runtime (createdIds), so a variable whose detected
+   * type changes between two polls would otherwise get the new value written into the old object:
+   * a string in a `type: "boolean"` datapoint, standing until the next adapter restart. Design #16
+   * forbids re-typing the object, so the VALUE has to yield instead — and to decide that, the type
+   * the object carries has to be known.
+   */
+  private readonly createdTypes = new Map<string, ioBroker.CommonType>();
   /** Last device name derived from mfr+model per UPS — lets a transient/wrong fallback self-correct. */
   private readonly fallbackNames = new Map<string, string>();
   /** Recording configurations of renamed datapoints whose successor is created later in this run. */
@@ -481,13 +890,41 @@ export class StateManager {
       return depthA - depthB;
     });
 
+    // Every id that is going to be a CHANNEL in this run: the adapter's own three plus the first
+    // segment of every dotted variable. A dotless variable carrying one of those names would be
+    // created as a state under exactly that id — and because both creations short-circuit on the
+    // same `createdIds` cache, whichever ran first wins and the other one's children end up
+    // hanging under the wrong kind of object. Dotless names sort first (depth 1), so without this
+    // set the state would always be the one to win.
+    const channelIds = new Set<string>(ADAPTER_OWNED_CHANNELS);
+    for (const v of variables) {
+      const dot = v.name.indexOf(".");
+      if (dot >= 0) {
+        channelIds.add(v.name.slice(0, dot));
+      }
+    }
+
     for (const v of sorted) {
-      // Dotless variables (e.g. a bare "ALARM" that some drivers expose) have no
-      // channel segment — a same-named channel would collide with the state id and
-      // leave a typeless object. Create those directly under the device instead.
+      // A NUT variable without a dot has no channel segment and is created directly under the
+      // device. NUT 2.8.5 itself never emits one — all 321 literal `dstate_setinfo` names carry a
+      // dot, and the `ALARM` this comment used to cite is a VALUE of ups.status (drivers/dstate.c:
+      // `dstate_setinfo("ups.status", "ALARM")`), not a variable. The branch exists for the other
+      // servers that speak this protocol (NAS firmware, home-grown upsd), which may send anything.
       const firstDot = v.name.indexOf(".");
       if (firstDot >= 0) {
         await this.ensureChannel(upsName, v.name.slice(0, firstDot));
+      } else if (channelIds.has(v.name)) {
+        // …and such a name must never collide with a channel id: the state object would take
+        // that id, and everything belonging under the channel would end up hanging beneath a
+        // state. Skip it and say so once — the alternative is a structurally broken tree.
+        const warnKey = `${upsName}.${v.name}`;
+        if (!this.warnedGarbageVars.has(warnKey)) {
+          this.warnedGarbageVars.add(warnKey);
+          this.adapter.log.warn(
+            `Ignoring NUT variable '${v.name}' on ${upsName}: a channel of that name exists in the object tree`,
+          );
+        }
+        continue;
       }
 
       const isWritable = rwNames.has(v.name);
@@ -498,20 +935,14 @@ export class StateManager {
       if (detected.expectedNumeric) {
         // Keyed per UPS, not per variable name: the warning names the UPS, so a second UPS
         // reporting the same junk has to be able to say so once as well.
-        const warnKey = `${upsName}.${v.name}`;
-        if (!this.warnedGarbageVars.has(warnKey)) {
-          this.warnedGarbageVars.add(warnKey);
-          this.adapter.log.warn(
-            `Discarding non-numeric value ${JSON.stringify(v.value)} for numeric variable '${v.name}' on ${upsName}`,
-          );
-        }
+        this.warnValueMismatch(upsName, v.name, `non-numeric value ${JSON.stringify(v.value)} for a numeric variable`);
         continue;
       }
 
       const stateId = nutVarToStateId(upsName, v.name);
       this.nutNames.set(stateId, v.name);
       const states = localizeStates(detectStates(v.name));
-      await this.ensureState(stateId, {
+      const effectiveType = await this.ensureState(stateId, {
         type: detected.type,
         role: detected.role,
         unit: detected.unit,
@@ -522,8 +953,42 @@ export class StateManager {
         states,
       });
 
+      // The object is written once per runtime (design #16 forbids re-typing it between polls),
+      // so a value whose detected type has drifted away from it must NOT be stored: it would sit
+      // in the datapoint as a string in a boolean field until the next restart, breaking every
+      // script that trusts the declared type. `expectedNumeric` only ever caught the variables
+      // detectUnit knows; this covers the rest, including driver.flag.* going boolean → string.
+      // null stays allowed — it is "no value" for every type (an idle countdown writes it).
+      if (detected.parsedValue !== null && typeof detected.parsedValue !== effectiveType) {
+        this.warnValueMismatch(
+          upsName,
+          v.name,
+          `value ${JSON.stringify(v.value)} is a ${typeof detected.parsedValue}, but the data point is a ${effectiveType} (restart the adapter to re-type it)`,
+        );
+        continue;
+      }
+
       await this.adapter.setStateChangedAsync(stateId, { val: detected.parsedValue, ack: true });
     }
+  }
+
+  /**
+   * Complain once per UPS and variable that a value cannot be stored, then stay quiet.
+   *
+   * Keyed per UPS, not per variable name: the message names the UPS, so a second UPS reporting the
+   * same trouble has to be able to say so once as well.
+   *
+   * @param upsName UPS identifier
+   * @param varName NUT variable name
+   * @param what What is wrong with the value
+   */
+  private warnValueMismatch(upsName: string, varName: string, what: string): void {
+    const warnKey = `${upsName}.${varName}`;
+    if (this.warnedGarbageVars.has(warnKey)) {
+      return;
+    }
+    this.warnedGarbageVars.add(warnKey);
+    this.adapter.log.warn(`Discarding ${what} — variable '${varName}' on ${upsName}`);
   }
 
   /**
@@ -613,18 +1078,18 @@ export class StateManager {
     for (const cmd of commands) {
       const stateId = `${upsName}.commands.${cmd.name.replace(/\./g, "-")}`;
       this.nutNames.set(stateId, cmd.name);
-      const cmdI18nKey = COMMAND_I18N[cmd.name];
+      const entry = commandCatalogEntry(cmd.name);
       await this.ensureState(stateId, {
         type: "boolean",
         role: "button",
         read: false,
         write: true,
-        name: cmdI18nKey ? tName(cmdI18nKey) : tRaw(cmd.name.replace(/\./g, " ").replace(/^./, c => c.toUpperCase())),
+        name: entry
+          ? withVariantMarker(tName(entry.key), entry.markers)
+          : tRaw(cmd.name.replace(/\./g, " ").replace(/^./, c => c.toUpperCase())),
         // Every command the catalog knows gets its explanation; an unmapped one keeps none —
         // the adapter cannot know what a driver-private command does.
-        desc: cmdI18nKey
-          ? tDesc(`desc${cmdI18nKey.charAt(0).toUpperCase()}${cmdI18nKey.slice(1)}` as I18nKey)
-          : undefined,
+        desc: entry ? tDesc(descKeyOf(entry.key)) : undefined,
         def: false,
       });
     }
@@ -697,42 +1162,50 @@ export class StateManager {
   }
 
   /**
-   * Remove device objects for UPS devices no longer reported by the NUT server.
+   * Bring the object tree in line with what the NUT server currently reports: drop devices for
+   * UPSes that are gone, drop orphaned roots left by earlier versions, and move the v0.1.0
+   * dot-style objects onto their current ids.
    *
-   * @param currentUpsNames Set of currently discovered UPS names
+   * ONE read of the adapter namespace for all three passes. They used to be two public methods
+   * with a `getAdapterObjectsAsync()` each, called back to back — and since design #25 that runs
+   * on every (re)connect and every change of the UPS list, not once per adapter start.
+   *
+   * The order matters and is the reason this is a single method rather than a shared snapshot
+   * handed to two: the device pass deletes objects, so the later passes must not judge the same
+   * snapshot again — a removed UPS would be reported a second time, as an "orphan from a previous
+   * adapter version", which is the wrong sentence for a UPS the user just unplugged.
+   *
+   * @param knownUpsNames Sanitized object-ID segments of the currently discovered UPSes
    */
-  async cleanupRemovedUps(currentUpsNames: Set<string>): Promise<void> {
+  async pruneObjectTree(knownUpsNames: Set<string>): Promise<void> {
     const adapterObjects = await this.adapter.getAdapterObjectsAsync();
-    const deviceIds = new Set<string>();
+    const local = (fullId: string): string => fullId.replace(`${this.adapter.namespace}.`, "");
 
-    for (const [id, obj] of Object.entries(adapterObjects)) {
-      if (obj.type === "device") {
-        const localId = id.replace(`${this.adapter.namespace}.`, "");
-        if (!currentUpsNames.has(localId)) {
-          deviceIds.add(localId);
-        }
+    // Pass 1 — devices of UPSes the server no longer lists.
+    const staleDevices = new Set<string>();
+    for (const [fullId, obj] of Object.entries(adapterObjects)) {
+      if (obj.type === "device" && !knownUpsNames.has(local(fullId))) {
+        staleDevices.add(local(fullId));
       }
     }
-
-    for (const deviceId of deviceIds) {
+    for (const deviceId of staleDevices) {
       this.adapter.log.info(`Removing stale UPS device: ${deviceId}`);
       await this.adapter.delObjectAsync(deviceId, { recursive: true });
       this.dropCacheUnder(deviceId);
     }
-  }
 
-  /**
-   * Remove orphaned objects from previous adapter versions and v0.1.0 dot-style objects.
-   *
-   * @param knownUpsNames Set of currently discovered UPS names
-   */
-  async cleanupLegacyObjects(knownUpsNames: Set<string>): Promise<void> {
-    const adapterObjects = await this.adapter.getAdapterObjectsAsync();
+    // Pass 2/3 — orphaned roots and v0.1.0 dot-style ids, on the same snapshot but skipping
+    // everything pass 1 has already taken out (recursively, so children go with their device).
+    const removed = (localId: string): boolean =>
+      [...staleDevices].some(d => localId === d || localId.startsWith(`${d}.`));
+
     const orphanRoots = new Set<string>();
     const dotStyleIds: string[] = [];
-
     for (const fullId of Object.keys(adapterObjects)) {
-      const localId = fullId.replace(`${this.adapter.namespace}.`, "");
+      const localId = local(fullId);
+      if (removed(localId)) {
+        continue;
+      }
       const parts = localId.split(".");
       const topLevel = parts[0];
 
@@ -775,7 +1248,7 @@ export class StateManager {
   private async cleanupDeprecatedInfoStates(upsName: string): Promise<void> {
     // Once per runtime per UPS — these states are gone after the first connect, so re-running
     // the delObject calls on every reconnect is wasted work. Cache-keyed like the name fallback;
-    // cleared together with the device in cleanupRemovedUps, so a re-added UPS cleans up again.
+    // cleared together with the device in pruneObjectTree, so a re-added UPS cleans up again.
     const cacheKey = `${upsName}.__deprecatedCleanup`;
     if (this.createdIds.has(cacheKey)) {
       return;
@@ -840,6 +1313,11 @@ export class StateManager {
         this.nutNames.delete(id);
       }
     }
+    for (const id of [...this.createdTypes.keys()]) {
+      if (under(id)) {
+        this.createdTypes.delete(id);
+      }
+    }
     for (const id of [...this.pendingRecording.keys()]) {
       if (under(id)) {
         this.pendingRecording.delete(id);
@@ -876,6 +1354,22 @@ export class StateManager {
     this.createdIds.add(id);
   }
 
+  /**
+   * Create the state object once per runtime and report the `common.type` that is in force for it.
+   *
+   * @param id State id
+   * @param common Object definition
+   * @param common.type ioBroker state type
+   * @param common.role ioBroker state role
+   * @param common.read Whether the state is readable
+   * @param common.write Whether the state is writable
+   * @param common.name Localized name
+   * @param common.desc Short explanation; omitted where the name already says everything
+   * @param common.unit Unit of the value
+   * @param common.def Default value
+   * @param common.states Value list for an enum datapoint
+   * @returns the type the object carries — the one already created, or the one just written
+   */
   private async ensureState(
     id: string,
     common: {
@@ -890,38 +1384,87 @@ export class StateManager {
       def?: boolean;
       states?: Record<string, string>;
     },
-  ): Promise<void> {
+  ): Promise<ioBroker.CommonType> {
     if (this.createdIds.has(id)) {
-      return;
+      return this.createdTypes.get(id) ?? common.type;
     }
-    // A value list can SHRINK between adapter versions or driver updates. extendObject merges
-    // key by key, so a dropped entry would linger in the dropdown and stay writable — clear it
-    // first, then write the fresh list (two merges, never a delete).
-    if (common.states !== undefined) {
-      await this.clearStatesBeforeWrite(id);
-    }
+    // First contact with this object in this runtime: take away what a merge could never remove
+    // later (a shrunk value list, bounds from a RANGE that no longer exists), then write the
+    // current picture on top. The enrichment that may re-add bounds runs after this, in the same
+    // poll — so a bound never outlives the LIST RANGE that produced it.
+    await this.clearShrinkableFields(id, common.states !== undefined);
     await this.adapter.extendObject(id, {
       type: "state",
       common,
       native: {},
     });
     this.createdIds.add(id);
+    this.createdTypes.set(id, common.type);
     await this.applyCarriedRecording(id);
+    return common.type;
   }
 
   /**
-   * Empty `common.states` on an EXISTING object, so the fresh list that follows replaces it
-   * instead of merging into it (js-controller merges key by key; `null` overwrites).
+   * Erase the fields of an EXISTING object that a later merge could never take away again, so the
+   * write that follows starts from a clean slate.
+   *
+   * `extendObject` merges key by key: a key the new picture does not carry SURVIVES, forever.
+   * Two kinds of field suffer from that and both are cleared here, in ONE read of the object:
+   *
+   * - `common.states` can SHRINK between adapter versions or driver updates — a dropped entry
+   *   would linger in the dropdown and stay selectable.
+   * - `common.min`/`max` come from LIST RANGE alone. Once written they outlived the driver that
+   *   reported them: through restarts, and forever once the variable stopped being writable. The
+   *   consequence is not cosmetic — js-controller warns on every value outside the dead bounds.
+   *
+   * `null` is what erases a key (node.extend copies null, skips undefined). Clearing is skipped
+   * entirely when the object carries none of them, so a steady poll costs no extra write.
    *
    * @param id State object id
+   * @param clearStates Whether the caller is about to write a fresh `common.states`
    */
-  private async clearStatesBeforeWrite(id: string): Promise<void> {
+  private async clearShrinkableFields(id: string, clearStates: boolean): Promise<void> {
+    await this.removeCommonFields(id, clearStates ? ["states", "min", "max"] : ["min", "max"]);
+  }
+
+  /**
+   * Really REMOVE attributes from an existing object's `common` — key and all.
+   *
+   * `extendObject` cannot do this. It merges, and `node.extend` COPIES a `null` instead of
+   * dropping the key: the attribute then survives with the value `null`, which is not the same as
+   * gone. For `common.supportedMessages` that is good enough (js-controller reads `null` as "not
+   * set"), but for a state's own attributes it is a defect the object-structure checker names
+   * outright — `common.min` must be of type number, `common.states` must be of type object, and
+   * `null` is neither (E1004). Measured on the first inventory run this gate ever did for nut2:
+   * 15 findings, all of them from writing `null`.
+   *
+   * So the whole object is read, the attributes are deleted from a copy, and it is written back
+   * with `setObject`. The user's recording (`common.custom`) travels along in that copy — it is
+   * theirs, and a repair of adapter-owned metadata must never cost it (design #31).
+   *
+   * @param id State object id
+   * @param fields The `common` attributes to remove
+   */
+  private async removeCommonFields(id: string, fields: string[]): Promise<void> {
     const existing = await this.adapter.getObjectAsync(id);
-    const common = existing?.common as { states?: unknown } | undefined;
-    if (common?.states === undefined || common.states === null) {
+    if (!existing?.common) {
       return;
     }
-    await this.adapter.extendObject(id, { common: { states: null } });
+    const common = { ...existing.common } as Record<string, unknown>;
+    const present = fields.filter(f => common[f] !== undefined && common[f] !== null);
+    if (present.length === 0) {
+      return;
+    }
+    for (const f of present) {
+      delete common[f];
+    }
+    await this.adapter.setObject(id, {
+      ...existing,
+      // The attributes are removed from a COPY of the real object, so what goes back is complete
+      // (type, role, name, native, and the user's `common.custom`) minus exactly those keys. The
+      // typings cannot express "this object minus a key", hence the cast.
+      common,
+    } as unknown as ioBroker.SettableObject);
   }
 
   /**
@@ -1009,22 +1552,29 @@ export class StateManager {
    */
   async enrichStateMetadata(
     id: string,
-    patch: { states?: Record<string, string>; min?: number; max?: number },
+    patch: { states?: Record<string, string> | null; min?: number | null; max?: number | null },
   ): Promise<void> {
     this.adapter.log.debug(`enrichStateMetadata ${id}: ${JSON.stringify(patch)}`);
+    // `null` means the server no longer reports this attribute — and a merge can only ever ADD,
+    // so removal is a separate operation on the whole object (see removeCommonFields).
+    const gone = (["states", "min", "max"] as const).filter(f => patch[f] === null);
+    if (gone.length > 0) {
+      await this.removeCommonFields(id, [...gone]);
+    }
+
     const common: Record<string, unknown> = {};
     if (patch.states) {
       common.states = localizeStates(patch.states);
     }
-    if (patch.min !== undefined) {
+    if (typeof patch.min === "number") {
       common.min = patch.min;
     }
-    if (patch.max !== undefined) {
+    if (typeof patch.max === "number") {
       common.max = patch.max;
     }
     if (Object.keys(common).length > 0) {
       if (patch.states) {
-        await this.clearStatesBeforeWrite(id);
+        await this.clearShrinkableFields(id, true);
       }
       await this.adapter.extendObject(id, { common });
     }
