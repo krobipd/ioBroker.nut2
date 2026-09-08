@@ -687,6 +687,11 @@ describe("NutClient", () => {
         // that reaches the client from a hand-made object, and it has to hold on every path.
         await expect(client.listRw("u p")).rejects.toThrow("Invalid NUT UPS name");
         await expect(client.listCmd('a"b')).rejects.toThrow("Invalid NUT UPS name");
+        // An empty token is the other half of the guard: `SET VAR ups0  20` would put the
+        // value where upsd expects the name (mutation N12, 2026-09-08).
+        await expect(client.setVar("ups0", "", "20")).rejects.toThrow("Invalid NUT variable name");
+        await expect(client.instCmd("ups0", "")).rejects.toThrow("Invalid NUT command name");
+        await expect(client.listVar("")).rejects.toThrow("Invalid NUT UPS name");
         expect(mock.commands).toEqual([]);
         // A clean token still goes through.
         await client.setVar("ups0", "ups.delay.shutdown", "20");

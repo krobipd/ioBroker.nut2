@@ -1153,6 +1153,26 @@ describe("StateManager", () => {
       expect(warns()[0]).toContain("ups0");
       expect(warns()[1]).toContain("ups1");
     });
+
+    it("the channel-collision warning is deduplicated per UPS as well", async () => {
+      // Same rule for the other once-only warning: a dotless variable that collides with a
+      // channel id is skipped and reported per UPS (mutation U5, 2026-09-08).
+      const { adapter, logs } = createMockAdapter();
+      const sm = new StateManager(adapter);
+      const warns = (): string[] => logs.filter(l => l.startsWith("WARN:") && l.includes("a channel of that name"));
+      const vars = [
+        { name: "battery.charge", value: "50" },
+        { name: "battery", value: "junk" },
+      ];
+
+      await sm.updateVariables("ups0", vars, new Set());
+      await sm.updateVariables("ups1", vars, new Set());
+      await sm.updateVariables("ups1", vars, new Set()); // repeat stays silent
+
+      expect(warns()).toHaveLength(2);
+      expect(warns()[0]).toContain("'battery' on ups0");
+      expect(warns()[1]).toContain("'battery' on ups1");
+    });
   });
 
   // -----------------------------------------------------------------------
