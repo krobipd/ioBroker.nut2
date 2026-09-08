@@ -1,0 +1,6 @@
+{
+  "source": "github:networkupstools/nut",
+  "verified": "v2.8.5",
+  "watch": ["docs/net-protocol.txt", "docs/nut-names.txt", "server/"],
+  "snapshot": "Ressourcen/nut/nut-<version>/"
+}
