@@ -2108,6 +2108,21 @@ describe("StateManager", () => {
 
       expect(JSON.stringify(enums.get("enum.rooms.attic"))).toBe(before);
     });
+
+    it("an enum without a members list neither breaks the rename nor gets one", async () => {
+      // `iobroker object set enum.rooms.x` creates an enum with no `members` at all — the carry
+      // must step over it, and the rename itself (delete + recording) must still go through.
+      const { adapter, objects, enums, deletedIds } = createMockAdapter();
+      objects.set("ups0.info.online", { type: "state", common: { type: "boolean", name: "Online" }, native: {} });
+      enums.set("enum.rooms.bare", { type: "enum", common: { name: "Bare" }, native: {} });
+      assignToRoom(enums, "enum.rooms.cellar", "ups0.info.online");
+
+      await new StateManager(adapter).ensureUpsDevice("ups0", "Main UPS");
+
+      expect(enums.get("enum.rooms.bare")?.common).toEqual({ name: "Bare" });
+      expect(enums.get("enum.rooms.cellar")?.common.members).toEqual([`${NS}.ups0.info.reachable`]);
+      expect(deletedIds).toContain("ups0.info.online");
+    });
   });
 
   describe("a renamed datapoint keeps the user's recording", () => {

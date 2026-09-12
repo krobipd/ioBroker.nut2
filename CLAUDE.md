@@ -115,7 +115,7 @@ docs/{en,de}/                   → Nutzerdoku im Repo (README/datapoints/faq), 
 55. **Ein Schreibvorgang auf einen read-only Datenpunkt erreicht die Leitung nicht (2026-09-12)** — `writableVars` hält je USV, was `LIST RW` beim letzten Poll listete; `onStateChange` lehnt alles andere auf `debug` ab statt ein `SET VAR` zu schicken, das upsd mit `READONLY` und einer roten Zeile quittiert. Nur auf Wissen: eine USV, die der Poll noch nicht gelistet hat, bleibt dem Server überlassen. Dazu dieselbe Einmal-Warnung wie bei `enableCommands` für `enableSetVar` ohne Zugangsdaten (die Variablen kamen schreibbar hoch, jeder Schreibvorgang starb stumm mit `ACCESS-DENIED`).
 56. **Drei Härtungen ohne eigene Geschichte (2026-09-12)** — (a) `enrichWritableVars` trennt Protokollaufruf und Objekt-Schreibvorgang in zwei `try`s; vorher hieß jeder gescheiterte Schreibvorgang „LIST ENUM/RANGE … not supported" auf debug, jetzt `warn` mit Datenpunkt (`applyMetadata`). (b) Die Schleifen über `discoveredUps` laufen über eine Kopie — `discover()` leert und füllt die Map mit `await`s dazwischen, eine lebende Map-Iteration endete am `clear()` still (nicht gemessen, ein Zeichen billiger als die Frage). (c) `listUps` nimmt eine `UPS <name>`-Zeile auch ohne gequotete Beschreibung (upsd sendet immer eine — `server/netlist.c:241/245` —, der Zweig gilt den Fremdservern aus #45), und Kanal-Kollision und Wertmüll haben getrennte Warn-Gedächtnisse (`warnedChannelCollisions`).
 
-## Tests (716 unit + 58 package = 774) + `npm run test:inventory` (Objekt-Inventar, 643 Objekte; Aufstiegs-Suite mit Raum-Zuordnung)
+## Tests (717 unit + 58 package = 775) + `npm run test:inventory` (Objekt-Inventar, 643 Objekte; Aufstiegs-Suite mit Raum-Zuordnung)
 
 ## Versionshistorie
 
