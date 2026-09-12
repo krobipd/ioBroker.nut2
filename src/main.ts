@@ -15,7 +15,7 @@ import { dispatchMessage, makeTestClientFactory } from "./lib/message-router";
 import { authFailureText, NutClient, NutConnectionError, NutError, NutTimeoutError } from "./lib/nut-client";
 import { nutVarToStateId, sanitizeUpsName, StateManager } from "./lib/state-manager";
 import { detectStates, detectType } from "./lib/type-detector";
-import type { AdapterConfig, NutClientOptions, NutLogger, NutVariable, UpsInfo } from "./lib/types";
+import type { AdapterConfig, NutClientOptions, NutLogger, NutRange, NutVariable, UpsInfo } from "./lib/types";
 
 /** Upper bound for the notify warn-dedup set (external input must not grow it without limit). */
 const NOTIFY_WARN_CAP = 100;
@@ -45,9 +45,18 @@ export class NutAdapter extends utils.Adapter {
   /** UPSes whose LIST CMD failed — warn once each, then debug (pruned with the UPS in discover). */
   private warnedCommandListFailures = new Set<string>();
   private enrichedUps = new Set<string>();
+  /**
+   * The variables LIST RW listed for each UPS on its last poll — what the adapter created
+   * `write: true`. A write to anything else never reaches the wire (see onStateChange).
+   */
+  private writableVars = new Map<string, Set<string>>();
+  /** SET VAR enabled without credentials — say it once, not on every reconnect. */
+  private warnedSetVarWithoutCredentials = false;
   private testClients = new Set<NutClient>();
   private subscribed = false;
   private unloaded = false;
+  /** The persistent client failed fatally — nothing polls any more (see onConnectFatal). */
+  private pollHalted = false;
   private everConnected = false;
 
   /** @param options Adapter options forwarded to the ioBroker base class. */
@@ -160,7 +169,7 @@ export class NutAdapter extends utils.Adapter {
    * is the contradiction this exists to prevent.
    */
   private async markAllUpsUnreachable(): Promise<void> {
-    for (const upsId of this.discoveredUps.keys()) {
+    for (const upsId of [...this.discoveredUps.keys()]) {
       await this.setStateChangedAsync(`${upsId}.info.reachable`, { val: false, ack: true });
     }
     await this.stateManager?.writeUpsSummary(this.discoveredUps.size, 0);
@@ -242,6 +251,14 @@ export class NutAdapter extends utils.Adapter {
 
       await this.verifyCredentials(host, port);
       await this.setupCommandButtons();
+      if (config.enableSetVar && !this.credentialsSent && !this.warnedSetVarWithoutCredentials) {
+        // Same reason and same once-per-runtime as the commands warning in setupCommandButtons:
+        // the variables come up writable, and every write is refused with ACCESS-DENIED.
+        this.warnedSetVarWithoutCredentials = true;
+        this.log.warn(
+          "SET VAR is enabled but no credentials are configured — the NUT server checks write rights per user, so every write will be refused",
+        );
+      }
 
       await this.poll();
       this.armPollTimer(config.pollInterval, pollSec);
@@ -388,7 +405,7 @@ export class NutAdapter extends utils.Adapter {
       }
       return;
     }
-    for (const [upsId, ups] of this.discoveredUps) {
+    for (const [upsId, ups] of [...this.discoveredUps]) {
       try {
         const commands = await this.client.listCmd(ups.name);
         await this.stateManager.createCommandButtons(upsId, commands);
@@ -417,7 +434,7 @@ export class NutAdapter extends utils.Adapter {
    * @param pollSec Resolved poll interval in seconds
    */
   private armPollTimer(rawInterval: unknown, pollSec: number): void {
-    if (this.unloaded || this.pollTimer !== undefined) {
+    if (this.unloaded || this.pollHalted || this.pollTimer !== undefined) {
       return;
     }
     this.log.debug(`pollInterval: raw=${JSON.stringify(rawInterval)} resolved=${pollSec}s`);
@@ -432,7 +449,7 @@ export class NutAdapter extends utils.Adapter {
    * recovery re-entry intact; a poll running during onUnload sees unloaded and does not re-arm.
    */
   private scheduleNextPoll(): void {
-    if (this.unloaded) {
+    if (this.unloaded || this.pollHalted) {
       return;
     }
     this.pollTimer = this.setTimeout(() => {
@@ -454,6 +471,15 @@ export class NutAdapter extends utils.Adapter {
       `TLS connection to NUT server ${host}:${port} failed: ${errText(err)} — verify the server offers STARTTLS and check the certificate settings (Require valid certificate, CA file)`,
     );
     this.client?.destroy();
+    // The client is gone for good — so is the poll. A fatal error can land on a RECONNECT (the CA
+    // file was moved, the certificate expired), with the timer chain long armed: left alone it
+    // re-armed itself forever against the destroyed client and wrote "will keep retrying" right
+    // under the line that said nothing would (measured 2026-09-12).
+    this.pollHalted = true;
+    if (this.pollTimer) {
+      this.clearTimeout(this.pollTimer);
+      this.pollTimer = undefined;
+    }
     void this.setStateChangedAsync("info.connection", { val: false, ack: true }).catch(() => {});
     void this.markAllUpsUnreachable().catch(() => {
       /* states DB unreachable — the next start stamps them again */
@@ -524,8 +550,8 @@ export class NutAdapter extends utils.Adapter {
     // enum/range enrichment, and a stale command-list marker would swallow the returning
     // UPS's first warning). One loop over all of them, so a marker added later cannot be
     // forgotten here.
-    for (const marker of [this.failedUps, this.enrichedUps, this.warnedCommandListFailures]) {
-      for (const name of marker) {
+    for (const marker of [this.failedUps, this.enrichedUps, this.warnedCommandListFailures, this.writableVars]) {
+      for (const name of [...marker.keys()]) {
         if (!knownNames.has(name)) {
           marker.delete(name);
         }
@@ -606,7 +632,10 @@ export class NutAdapter extends utils.Adapter {
       }
 
       let reachable = 0;
-      for (const [upsId, ups] of this.discoveredUps) {
+      // Over a copy: discover() clears and refills the map with awaits in between, and a live
+      // Map iteration would end silently at the clear — the remaining UPSes unpolled and the
+      // summary below counting a map that changed under it.
+      for (const [upsId, ups] of [...this.discoveredUps]) {
         // upsId is the sanitized object-ID segment; nutName is the real NUT name for the protocol.
         const nutName = ups.name;
         try {
@@ -624,6 +653,7 @@ export class NutAdapter extends utils.Adapter {
           ]);
 
           const rwNames = new Set(rwVars.map(v => v.name));
+          this.writableVars.set(upsId, rwNames);
           await this.stateManager.updateVariables(upsId, variables, rwNames);
 
           await this.stateManager.updateDeviceName(upsId, ups.description, variables);
@@ -698,17 +728,26 @@ export class NutAdapter extends utils.Adapter {
         this.log.error(`Poll failed: ${errMsg}`);
       }
 
-      await this.setStateChangedAsync("info.connection", { val: false, ack: true });
       // The poll failed as a WHOLE (not a single UPS — those are caught inside the loop), so this
       // run learned nothing about any of them. Every device marker goes down together with the
       // summary: leaving a UPS green next to "0 of 1 reachable" is the same contradiction on one
       // screen that the summary is meant to resolve.
-      await this.markAllUpsUnreachable();
+      //
+      // Guarded like the writes in the try block: poll() is used as "never rejects" by the timer
+      // chain and by the follow-up below, and these two awaits used to be the exception — with
+      // the states DB gone (a stop, a controller restart) they rejected out of the catch, and
+      // that became an unhandled rejection (measured 2026-09-12).
+      try {
+        await this.setStateChangedAsync("info.connection", { val: false, ack: true });
+        await this.markAllUpsUnreachable();
+      } catch (writeErr: unknown) {
+        this.log.debug(`Could not record the failed poll: ${errText(writeErr)}`);
+      }
     } finally {
       this.isPolling = false;
       if (this.pollAgainRequested && !this.unloaded) {
         this.pollAgainRequested = false;
-        // Fire-and-forget: poll() never rejects (everything above is caught), and the timer
+        // Fire-and-forget: poll() never rejects (every await in it is caught), and the timer
         // chain stays untouched — this is just one extra run for the queued request.
         void this.poll();
       }
@@ -719,6 +758,11 @@ export class NutAdapter extends utils.Adapter {
    * Enrich writable variables with ENUM (common.states) and RANGE (min/max) metadata, once per UPS
    * per connection (guarded by enrichedUps). Each query is best-effort — a driver that does not
    * support LIST ENUM/RANGE just logs at debug.
+   *
+   * The protocol call and the object write are guarded SEPARATELY: a driver that cannot answer is
+   * a debug line and nothing changes, but a write that fails has to say so at warn — it may have
+   * left the datapoint without the metadata it should carry. Both used to share one catch, which
+   * blamed every failed write on the driver ("LIST ENUM … not supported").
    *
    * @param upsId Sanitized UPS object-ID segment (for state IDs)
    * @param nutName Real NUT name (for LIST ENUM/RANGE protocol calls)
@@ -736,31 +780,39 @@ export class NutAdapter extends utils.Adapter {
       // boolean has none). Multi-value string/number enums are unaffected.
       const isBoolean = detectType(rw.name, rw.value, true).type === "boolean";
       if (!isBoolean) {
+        let enumVals: string[] | undefined;
         try {
-          const enumVals = await this.client.listEnum(nutName, rw.name);
+          enumVals = await this.client.listEnum(nutName, rw.name);
+        } catch (err: unknown) {
+          this.log.debug(`LIST ENUM ${nutName} ${rw.name}: not supported (${errText(err)})`);
+        }
+        if (enumVals !== undefined) {
           if (enumVals.length > 0) {
             const states: Record<string, string> = {};
             for (const v of enumVals) {
               states[v] = v;
             }
-            await this.stateManager.enrichStateMetadata(stateId, { states });
+            await this.applyMetadata(stateId, { states });
           } else if (!detectStates(rw.name)) {
             // The server no longer offers a value list, and the adapter's own catalog has none
             // for this variable either — so the list has to GO. A merge never removes a key, so
             // an old list would stay selectable in the admin forever. Only when the catalog is
             // silent too: its entries are the better answer for the many drivers that simply do
             // not implement LIST ENUM.
-            await this.stateManager.enrichStateMetadata(stateId, { states: null });
+            await this.applyMetadata(stateId, { states: null });
           }
-        } catch (err: unknown) {
-          this.log.debug(`LIST ENUM ${nutName} ${rw.name}: not supported (${errText(err)})`);
         }
       }
+      let ranges: NutRange[] | undefined;
       try {
-        const ranges = await this.client.listRange(nutName, rw.name);
-        // No range (or an unreadable one) means the bounds must disappear, not stay: they came
-        // from LIST RANGE alone, and a driver update that drops a range would otherwise leave
-        // js-controller warning about every value outside bounds nobody reports any more.
+        ranges = await this.client.listRange(nutName, rw.name);
+      } catch (err: unknown) {
+        this.log.debug(`LIST RANGE ${nutName} ${rw.name}: not supported (${errText(err)})`);
+      }
+      if (ranges !== undefined) {
+        // No range means the bounds must disappear, not stay: they came from LIST RANGE alone,
+        // and a driver update that drops a range would otherwise leave js-controller warning
+        // about every value outside bounds nobody reports any more.
         const patch: { min: number | null; max: number | null } = { min: null, max: null };
         if (ranges.length > 0) {
           const min = parseDecimal(ranges[0].min);
@@ -772,12 +824,28 @@ export class NutAdapter extends utils.Adapter {
             patch.max = max;
           }
         }
-        await this.stateManager.enrichStateMetadata(stateId, patch);
-      } catch (err: unknown) {
-        this.log.debug(`LIST RANGE ${nutName} ${rw.name}: not supported (${errText(err)})`);
+        await this.applyMetadata(stateId, patch);
       }
     }
     this.enrichedUps.add(upsId);
+  }
+
+  /**
+   * Write ENUM/RANGE metadata to a datapoint and say so if that fails — the one place in the poll
+   * where a failed object write is neither a poll failure nor the driver's fault.
+   *
+   * @param stateId Local state id
+   * @param patch Metadata to apply (see StateManager.enrichStateMetadata)
+   */
+  private async applyMetadata(
+    stateId: string,
+    patch: Parameters<StateManager["enrichStateMetadata"]>[1],
+  ): Promise<void> {
+    try {
+      await this.stateManager?.enrichStateMetadata(stateId, patch);
+    } catch (err: unknown) {
+      this.log.warn(`Could not update the metadata of ${stateId}: ${errText(err)}`);
+    }
   }
 
   private async onStateChange(id: string, state: ioBroker.State | null | undefined): Promise<void> {
@@ -868,6 +936,16 @@ export class NutAdapter extends utils.Adapter {
       const varName =
         this.stateManager?.nutNameForState(localId) ??
         (parts.length > 2 ? `${parts[1]}.${parts.slice(2).join(".").replace(/-/g, ".")}` : parts.slice(1).join("."));
+      // What the server listed as writable on the last poll is what the adapter created
+      // `write: true`. A write to any other variable (a script, the REST API) would go out as a
+      // SET VAR that upsd refuses with READONLY and a red line — for a datapoint the adapter
+      // itself declared read-only. Only on knowledge: a UPS the poll has not listed yet is left
+      // to the server.
+      const writable = this.writableVars.get(upsId);
+      if (writable && !writable.has(varName)) {
+        this.log.debug(`onStateChange: ${localId} is read-only (${varName} is not in LIST RW), ignoring write`);
+        return;
+      }
       // A writable yes/no variable (ups.start.auto/.battery/.reboot, battery.protection) is stored
       // as a boolean state (detectType → boolean only via parseYesNo, so boolean ⟺ the NUT var
       // accepts yes/no). Translate it back to the token NUT expects — String(true) = "true" would
@@ -907,7 +985,7 @@ export class NutAdapter extends utils.Adapter {
     if (upsRef) {
       // First by the real NUT name (survives sanitization AND `…-2` collision suffixes),
       // then by the sanitized object ID — covers both spellings a user may configure.
-      for (const [upsId, ups] of this.discoveredUps) {
+      for (const [upsId, ups] of [...this.discoveredUps]) {
         if (ups.name === upsRef) {
           matchedId = upsId;
           break;

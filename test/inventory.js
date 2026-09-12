@@ -26,6 +26,18 @@ const INVENTORY = path.join(__dirname, "objects.inventory.json");
 const FIXTURE_DIR = path.join(__dirname, "fixtures", "inventory");
 const VOLATILE = ["ts", "from", "user", "acl"];
 const COMPARED = ["name", "desc", "role", "type", "unit"];
+// A room the USER made, with the kinds of data point an upgrade rewrites: one with a value list
+// (every UPS has status.severity), one catalog enum, one with LIST RANGE bounds — and one plain
+// number as the control that nothing rewrites. Measured 2026-09-12 on a real js-controller: the
+// first three LOST their room on every adapter start, because the rewrite went through delObject,
+// which strikes the id from every enum. The assignment belongs to the user; no upgrade may cost it.
+const USER_ROOM = "enum.rooms.inventory-audit";
+const USER_ROOM_MEMBERS = [
+  `${NS}ups-single-phase.status.severity`,
+  `${NS}ups-single-phase.ups.beeper-status`,
+  `${NS}ups-single-phase.battery.charge-low`,
+  `${NS}ups-single-phase.battery.charge`,
+];
 
 const FIXTURES = fs
   .readdirSync(FIXTURE_DIR)
@@ -260,6 +272,12 @@ tests.integration(ADAPTER_DIR, {
           for (const [id, obj] of Object.entries(previous)) {
             await harness.objects.setObjectAsync(id, obj);
           }
+          // …and the user has put four of its data points into a room.
+          await harness.objects.setObjectAsync(USER_ROOM, {
+            type: "enum",
+            common: { name: "Inventory audit", members: [...USER_ROOM_MEMBERS] },
+            native: {},
+          });
           await harness.changeAdapterConfig(ADAPTER, { native: fixtureNative() });
           await harness.startAdapterAndWait();
           await feedFixtures(harness);
@@ -268,6 +286,14 @@ tests.integration(ADAPTER_DIR, {
         after(async function () {
           this.timeout(30000);
           await fakeServer.stop();
+        });
+
+        it("the user's room assignments survive the upgrade", async function () {
+          this.timeout(30000);
+          const room = await harness.objects.getObjectAsync(USER_ROOM);
+          const members = (room && room.common && room.common.members) || [];
+          const lost = USER_ROOM_MEMBERS.filter(id => !members.includes(id));
+          assert.deepStrictEqual(lost, [], `data points the upgrade struck from the user's room:\n${lost.join("\n")}`);
         });
 
         it("every current object carries the current texts and roles", async function () {

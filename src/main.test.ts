@@ -44,12 +44,21 @@ vi.mock("@iobroker/adapter-core", () => {
       return id.startsWith(`${this.namespace}.`) ? id : `${this.namespace}.${id}`;
     }
 
+    /** When set, every state write rejects the way js-controller does once its DB is gone. */
+    statesDbClosed = false;
+
     setState(id: string, state: { val: unknown; ack?: boolean }): Promise<void> {
+      if (this.statesDbClosed) {
+        return Promise.reject(new Error("Connection is closed."));
+      }
       this.states.set(this.fullId(id), { val: state.val, ack: state.ack ?? false });
       return Promise.resolve();
     }
 
     setStateChangedAsync(id: string, state: { val: unknown; ack?: boolean }): Promise<void> {
+      if (this.statesDbClosed) {
+        return Promise.reject(new Error("Connection is closed."));
+      }
       this.states.set(this.fullId(id), { val: state.val, ack: state.ack ?? false });
       return Promise.resolve();
     }
@@ -116,6 +125,7 @@ interface StubSurface {
   getForeignObjectAsync: ReturnType<typeof vi.fn>;
   extendForeignObjectAsync: ReturnType<typeof vi.fn>;
   sentTo: { from: string; command: string; response: unknown }[];
+  statesDbClosed: boolean;
 }
 
 interface FakeClient {
@@ -232,6 +242,7 @@ interface Internal {
   testClients: Set<{ destroy: () => void }>;
   pollTimer: unknown;
   lastErrorCode: string;
+  scheduleNextPoll: () => void;
 }
 
 const BASE_CONFIG = {
@@ -293,6 +304,20 @@ async function setupConnected(config: Partial<typeof BASE_CONFIG> = {}, upsList?
   expect(s.client.start).toHaveBeenCalledTimes(1);
   await s.internal.onConnected();
   return s;
+}
+
+/**
+ * Let the (fake) server list these variables as writable and poll once, so the adapter knows them
+ * the way it does in production before any write can arrive — a write to a variable LIST RW never
+ * listed is refused without touching the wire.
+ *
+ * @param s the connected setup
+ * @param names NUT variable names the server reports as RW
+ */
+async function withWritable(s: Setup, ...names: string[]): Promise<void> {
+  s.client.listRw.mockResolvedValue(names.map(name => ({ name, value: "" })));
+  await s.internal.poll();
+  s.client.setVar.mockClear();
 }
 
 function logsOf(stub: StubSurface, level: string): string[] {
@@ -839,7 +864,7 @@ describe("poll", () => {
   });
 
   it("LIST RW failure is non-critical — poll continues with no writable vars", async () => {
-    const s = await setupConnected({ enableSetVar: true });
+    const s = await setupConnected({ enableSetVar: true, username: "nut", password: "secret" });
     s.client.listRw.mockRejectedValue(new Error("RW unsupported"));
     s.sm.updateVariables.mockClear();
     await s.internal.poll();
@@ -1040,6 +1065,7 @@ describe("onStateChange — command and SET VAR gates", () => {
 
   it("SET VAR: reconstructs the variable name (dashes→dots) and acks on success", async () => {
     const s = await setupConnected({ enableSetVar: true });
+    await withWritable(s, "ups.delay.shutdown");
     await s.internal.onStateChange("nut2.0.ups0.ups.delay-shutdown", { val: 30, ack: false });
     expect(s.client.setVar).toHaveBeenCalledWith("ups0", "ups.delay.shutdown", "30");
     expect(s.stub.states.get("nut2.0.ups0.ups.delay-shutdown")).toEqual({ val: 30, ack: true });
@@ -1047,6 +1073,7 @@ describe("onStateChange — command and SET VAR gates", () => {
 
   it("SET VAR: uses the stored NUT name so a literal dash survives (three-phase)", async () => {
     const s = await setupConnected({ enableSetVar: true });
+    await withWritable(s, "input.L1-L2.voltage");
     s.sm.nutNameForState.mockReturnValue("input.L1-L2.voltage");
     await s.internal.onStateChange("nut2.0.ups0.input.L1-L2-voltage", { val: 247, ack: false });
     expect(s.client.setVar).toHaveBeenCalledWith("ups0", "input.L1-L2.voltage", "247");
@@ -1057,6 +1084,7 @@ describe("onStateChange — command and SET VAR gates", () => {
     // eaton, voltronic) → detectType makes them boolean switches. Writing must translate the
     // boolean to the yes/no token NUT expects; String(true) = "true" would be rejected.
     const s = await setupConnected({ enableSetVar: true });
+    await withWritable(s, "ups.start.auto");
     s.sm.nutNameForState.mockReturnValue("ups.start.auto");
 
     await s.internal.onStateChange("nut2.0.ups0.ups.start-auto", { val: false, ack: false });
@@ -1083,6 +1111,7 @@ describe("onStateChange — command and SET VAR gates", () => {
 
   it("a failing SET VAR logs an error and does NOT ack", async () => {
     const s = await setupConnected({ enableSetVar: true });
+    await withWritable(s, "ups.delay.shutdown");
     s.client.setVar.mockRejectedValue(new NutError("SET-FAILED"));
     await s.internal.onStateChange("nut2.0.ups0.ups.delay-shutdown", { val: 30, ack: false });
     expect(logsOf(s.stub, "error").some(m => m.includes("SET VAR failed"))).toBe(true);
@@ -1128,6 +1157,7 @@ describe("onStateChange — command and SET VAR gates", () => {
     // everything below three segments. The user saw a writable data point that swallowed every
     // write with nothing but a debug line. The lossless reverse lookup already had the answer.
     const s = await setupConnected({ enableSetVar: true });
+    await withWritable(s, "SOMEVAR");
     s.sm.nutNameForState.mockReturnValue("SOMEVAR");
     await s.internal.onStateChange("nut2.0.ups0.SOMEVAR", { val: 42, ack: false });
     expect(s.client.setVar).toHaveBeenCalledWith("ups0", "SOMEVAR", "42");
@@ -1138,6 +1168,7 @@ describe("onStateChange — command and SET VAR gates", () => {
     // "commands" there would reject a legitimate variable (and the state manager already keeps
     // such a name out of the tree in the first place).
     const s = await setupConnected({ enableSetVar: true });
+    await withWritable(s, "infotext");
     s.sm.nutNameForState.mockReturnValue("infotext");
     await s.internal.onStateChange("nut2.0.ups0.infotext", { val: "x", ack: false });
     expect(s.client.setVar).toHaveBeenCalledWith("ups0", "infotext", "x");
@@ -1751,5 +1782,109 @@ describe("what the adapter hands to its collaborators", () => {
     // And the poll timer is armed anyway: the socket is alive, so nothing else would ever
     // restart the polling.
     expect(s.internal.pollTimer).toBeDefined();
+  });
+});
+
+describe("audit 2026-09-12 — the poll keeps its contract", () => {
+  it("poll() resolves even when the states DB rejects every write while it is failing", async () => {
+    // Measured: the catch block itself awaited two state writes without a guard. With the DB gone
+    // (a stop, a controller restart) the poll REJECTED out of its own catch — and both callers
+    // (`void this.poll()` in the timer chain and in the follow-up) let that become an unhandled
+    // rejection, which js-controller answers with red lines and, outside a stop, a restart.
+    const s = await setupConnected();
+    s.client.listUps.mockRejectedValue(new NutConnectionError("Not connected"));
+    s.stub.statesDbClosed = true;
+
+    await expect(s.internal.poll()).resolves.toBeUndefined();
+    expect(logsOf(s.stub, "error"), "a closed DB is not an error of this adapter").toEqual([]);
+  });
+
+  it("a fatal TLS error on a reconnect stops the poll chain — no 'will keep retrying' for a client that is gone", async () => {
+    // Measured: after onFatal the client was destroyed for good, but the armed timer kept
+    // re-arming itself forever and the first poll wrote "will keep retrying" right under the
+    // error line that said the opposite.
+    const s = await setupConnected({ useTls: true, tlsRejectUnauthorized: true, tlsCaFile: "/etc/ca.pem" });
+    const armed = s.stub.timeouts.find(t => !t.cleared);
+    expect(armed, "precondition: the poll timer is armed after the first connect").toBeDefined();
+
+    s.client.onFatal!(new NutError("TLS-CA-UNREADABLE", "TLS CA file /etc/ca.pem cannot be read"));
+
+    expect(armed!.cleared, "the poll timer was not cleared").toBe(true);
+    expect(s.internal.pollTimer).toBeUndefined();
+    // Nothing re-arms it either — not the timer chain, not a poll that was still in flight.
+    const before = s.stub.timeouts.length;
+    s.internal.scheduleNextPoll();
+    expect(s.stub.timeouts.length).toBe(before);
+    expect(logsOf(s.stub, "warn").some(m => m.includes("will keep retrying"))).toBe(false);
+  });
+
+  it("a failing object write during the enrichment is reported as such — not as an unsupported LIST command", async () => {
+    // Measured: both enrichStateMetadata calls sat inside the try whose catch says
+    // "LIST ENUM/RANGE … not supported" on debug. A datapoint the write could not update was
+    // blamed on the driver, invisibly.
+    const s = await setupConnected({ enableSetVar: true });
+    s.client.listRw.mockResolvedValue([{ name: "ups.delay.shutdown", value: "20" }]);
+    s.client.listEnum.mockResolvedValue(["10", "20", "30"]);
+    s.client.listRange.mockResolvedValue([{ min: "0", max: "600" }]);
+    s.sm.enrichStateMetadata.mockRejectedValue(new Error("Connection is closed."));
+    s.internal.enrichedUps.clear();
+
+    await s.internal.poll();
+
+    const warns = logsOf(s.stub, "warn");
+    expect(warns.some(m => m.includes("ups0.ups.delay-shutdown") && m.includes("Connection is closed."))).toBe(true);
+    expect(logsOf(s.stub, "debug").some(m => m.includes("not supported"))).toBe(false);
+  });
+});
+
+describe("audit 2026-09-12 — writes that never belonged on the wire", () => {
+  it("a write to a datapoint the server listed as read-only ends on debug, not as a SET VAR", async () => {
+    // `enableSetVar` is on, but LIST RW did not list battery.charge — the adapter created it
+    // read-only. A script writing to it produced a SET VAR that upsd refused, and a red line.
+    const s = await setupConnected({ enableSetVar: true });
+    await withWritable(s, "ups.delay.shutdown");
+
+    await s.internal.onStateChange("nut2.0.ups0.battery.charge", { val: 50, ack: false });
+
+    expect(s.client.setVar).not.toHaveBeenCalled();
+    expect(logsOf(s.stub, "error")).toEqual([]);
+    expect(logsOf(s.stub, "debug").some(m => m.includes("battery.charge") && m.includes("read-only"))).toBe(true);
+  });
+
+  it("a write to a datapoint the server listed as writable still goes out", async () => {
+    const s = await setupConnected({ enableSetVar: true });
+    await withWritable(s, "ups.delay.shutdown");
+
+    await s.internal.onStateChange("nut2.0.ups0.ups.delay-shutdown", { val: 30, ack: false });
+
+    expect(s.client.setVar).toHaveBeenCalledWith("ups0", "ups.delay.shutdown", "30");
+  });
+
+  it("before the first poll answered, a write is not refused on a guess", async () => {
+    // The gate only fires on KNOWLEDGE — a UPS the poll has not listed yet is left to the server.
+    const s = setup({ enableSetVar: true });
+    await s.internal.onReady();
+    await s.internal.discover();
+
+    await s.internal.onStateChange("nut2.0.ups0.ups.delay-shutdown", { val: 30, ack: false });
+
+    expect(s.client.setVar).toHaveBeenCalledWith("ups0", "ups.delay.shutdown", "30");
+  });
+
+  it("says once why every SET VAR will fail when it is enabled without credentials", async () => {
+    // The commands switch has had this warning since 0.14.0; the SET VAR switch did not —
+    // the variables came up writable and every write died with ACCESS-DENIED, unexplained.
+    const s = await setupConnected({ enableSetVar: true, username: "", password: "" });
+    const warned = (): number =>
+      logsOf(s.stub, "warn").filter(m => m.includes("SET VAR") && m.includes("no credentials")).length;
+    expect(warned()).toBe(1);
+
+    await s.internal.onConnected();
+    expect(warned(), "once per runtime, not once per reconnect").toBe(1);
+  });
+
+  it("stays silent about credentials when SET VAR is off", async () => {
+    const s = await setupConnected({ enableSetVar: false, username: "", password: "" });
+    expect(logsOf(s.stub, "warn").some(m => m.includes("SET VAR") && m.includes("no credentials"))).toBe(false);
   });
 });

@@ -518,11 +518,18 @@ export class NutClient {
     return this.tlsActive;
   }
 
-  /** Discover all UPS devices on the NUT server. */
+  /**
+   * Discover all UPS devices on the NUT server.
+   *
+   * The description is optional in the parser: upsd itself always quotes one (server/netlist.c —
+   * the configured `desc`, or literally "Description unavailable"), but the other servers that
+   * speak this protocol may send a bare `UPS <name>`, and a line the parser drops takes the whole
+   * UPS with it.
+   */
   listUps(): Promise<UpsInfo[]> {
-    return this.parseList("LIST UPS", /^UPS\s+(\S+)\s+"((?:[^"\\]|\\.)*)"/, m => ({
+    return this.parseList("LIST UPS", /^UPS\s+(\S+)(?:\s+"((?:[^"\\]|\\.)*)")?/, m => ({
       name: m[1],
-      description: unescapeNut(m[2]),
+      description: m[2] === undefined ? "" : unescapeNut(m[2]),
     }));
   }
 

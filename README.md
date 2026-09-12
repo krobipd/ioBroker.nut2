@@ -246,6 +246,19 @@ Any write to `nut2.0.notify` triggers an immediate poll of all UPS devices; an e
     ### **WORK IN PROGRESS**
 -->
 
+### **WORK IN PROGRESS**
+
+- Fixed: every adapter start silently removed the status severity, the device type, every dropdown and every bounded value from the rooms and functions the user had assigned them to
+- Fixed: when a dropdown list or a value range really shrinks, the data point keeps its value, its recording settings and its room and function assignments
+- Fixed: a data point that is renamed by an update keeps its room and function assignments, exactly as it already kept its recording settings
+- Fixed: a UPS without a `desc` in ups.conf lost its manufacturer + model name on the first reconnect and was called by its config name until the next restart
+- Fixed: after a fatal TLS error on a reconnect the adapter kept polling a connection that no longer existed and promised a retry that never came
+- Fixed: stopping the instance while the NUT server was unreachable could leave two error lines in the log
+- Improved: dropdown lists and value ranges are no longer rewritten on every start and every reconnect when nothing changed — less load on the object database and on every adapter listening to it
+- Improved: the adapter reads its object tree once per discovery instead of once per data point — a lighter start on large installations
+- Improved: a value written to a data point the UPS reports as read-only is ignored quietly instead of producing an error
+- Improved: a UPS reported without a description by a non-standard NUT server no longer goes missing
+
 ### 0.15.1 (2026-09-07)
 
 - New: ten more data points explain themselves — the battery date, the UPS's own clock, the three driver versions, the UPS identifier, the UPS type and the USB vendor and product IDs

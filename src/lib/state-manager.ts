@@ -701,6 +701,36 @@ function localizeStates(states: Record<string, string> | undefined): Record<stri
   return out;
 }
 
+/**
+ * The attributes of a stored `common` that a later merge could never take away again: the keys of
+ * its value list and which of its bounds are set. One definition, so the snapshot in
+ * `pruneObjectTree` and the comparison in `enrichStateMetadata` cannot drift apart on what counts.
+ *
+ * @param common The stored object's common, if any
+ */
+function shrinkablesOf(common: unknown): { states?: string[]; bounds: string[] } {
+  const c = (common ?? {}) as Record<string, unknown>;
+  const states = c.states && typeof c.states === "object" ? Object.keys(c.states) : undefined;
+  const bounds = ["min", "max"].filter(f => c[f] !== undefined && c[f] !== null);
+  return { states, bounds };
+}
+
+/**
+ * Whether two value lists are the same — same values, same labels. The enrichment answers after
+ * every reconnect; only a real difference is worth a write.
+ *
+ * @param a A value list, or nothing
+ * @param b The other one
+ */
+function sameStates(a: unknown, b: Record<string, string>): boolean {
+  if (!a || typeof a !== "object") {
+    return false;
+  }
+  const stored = a as Record<string, unknown>;
+  const keys = Object.keys(b);
+  return keys.length === Object.keys(stored).length && keys.every(k => stored[k] === b[k]);
+}
+
 /** LIST UPS says this when the NUT server has no `desc` configured for a UPS in ups.conf. */
 const NO_DESCRIPTION = "Description unavailable";
 
@@ -710,6 +740,8 @@ export class StateManager {
   private readonly createdIds = new Set<string>();
   /** NUT variables already warned about as a value that does not fit its field (warn once). */
   private readonly warnedGarbageVars = new Set<string>();
+  /** Dotless variables already warned about as colliding with a channel id (warn once). */
+  private readonly warnedChannelCollisions = new Set<string>();
   /**
    * stateId → the `common.type` the object was actually created with in THIS runtime.
    *
@@ -722,6 +754,21 @@ export class StateManager {
   private readonly createdTypes = new Map<string, ioBroker.CommonType>();
   /** Last device name derived from mfr+model per UPS — lets a transient/wrong fallback self-correct. */
   private readonly fallbackNames = new Map<string, string>();
+  /**
+   * Last device label derived from the LIST UPS description per UPS. `ensureUpsDevice` runs on
+   * every (re)connect; without this memory it wrote the bare UPS name back over the mfr+model
+   * fallback on every reconnect — and `fallbackNames` then made `updateDeviceName` skip the
+   * repair, so the device kept its config name until the next restart (measured 2026-09-12).
+   */
+  private readonly descriptionLabels = new Map<string, string>();
+  /**
+   * What the STORED objects carry, from the namespace snapshot `pruneObjectTree` takes on every
+   * discover: the keys of `common.states` and which of `common.min`/`max` are set, per id. This
+   * is what decides whether a first contact in this runtime has to remove anything — without a
+   * read per datapoint, and without a write when nothing shrank (see `clearShrinkableFields`).
+   */
+  private readonly storedStates = new Map<string, string[]>();
+  private readonly storedBounds = new Map<string, string[]>();
   /** Recording configurations of renamed datapoints whose successor is created later in this run. */
   private readonly pendingRecording = new Map<string, Record<string, unknown>>();
   /**
@@ -785,23 +832,33 @@ export class StateManager {
     // line, #15). Without a `desc` in ups.conf the server answers a placeholder — the UPS name
     // is the better label then, and the first poll replaces it with manufacturer + model.
     const label = description && description !== NO_DESCRIPTION ? description : upsName;
-    await this.adapter.extendObject(
-      upsName,
-      {
-        type: "device",
-        common: {
-          name: tRaw(label),
-          statusStates: {
-            onlineId: `${this.adapter.namespace}.${upsName}.info.reachable`,
+    // Written when the label this adapter derives CHANGES — not once per runtime, so a `desc`
+    // added to ups.conf still reaches the tree on the next discover; and not on every discover,
+    // because that wrote the bare UPS name back over the mfr+model fallback on every reconnect
+    // (the fallback's own memory then blocked the repair — measured 2026-09-12).
+    if (this.descriptionLabels.get(upsName) !== label) {
+      await this.adapter.extendObject(
+        upsName,
+        {
+          type: "device",
+          common: {
+            name: tRaw(label),
+            statusStates: {
+              onlineId: `${this.adapter.namespace}.${upsName}.info.reachable`,
+            },
           },
+          native: {},
         },
-        native: {},
-      },
-      // No `preserve` for the name: the adapter owns common.name/desc like it owns type and
-      // role (krobi 2026-09-02 — a user's place is 0_userdata, not an adapter's datapoints).
-      // The recording configuration is the explicit exception and stays untouched: merging
-      // never removes what it does not carry (reference_iobroker_objekt_aendern_ohne_loeschen).
-    );
+        // No `preserve` for the name: the adapter owns common.name/desc like it owns type and
+        // role (krobi 2026-09-02 — a user's place is 0_userdata, not an adapter's datapoints).
+        // The recording configuration is the explicit exception and stays untouched: merging
+        // never removes what it does not carry (reference_iobroker_objekt_aendern_ohne_loeschen).
+      );
+      this.descriptionLabels.set(upsName, label);
+      // Whoever writes the device name invalidates the other's memory: the fallback has just been
+      // overwritten, so `updateDeviceName` must be allowed to apply it again.
+      this.fallbackNames.delete(upsName);
+    }
     this.createdIds.add(upsName);
 
     await this.ensureChannel(upsName, "info");
@@ -933,8 +990,8 @@ export class StateManager {
         // that id, and everything belonging under the channel would end up hanging beneath a
         // state. Skip it and say so once — the alternative is a structurally broken tree.
         const warnKey = `${upsName}.${v.name}`;
-        if (!this.warnedGarbageVars.has(warnKey)) {
-          this.warnedGarbageVars.add(warnKey);
+        if (!this.warnedChannelCollisions.has(warnKey)) {
+          this.warnedChannelCollisions.add(warnKey);
           this.adapter.log.warn(
             `Ignoring NUT variable '${v.name}' on ${upsName}: a channel of that name exists in the object tree`,
           );
@@ -1196,6 +1253,23 @@ export class StateManager {
     const adapterObjects = await this.adapter.getAdapterObjectsAsync();
     const local = (fullId: string): string => fullId.replace(`${this.adapter.namespace}.`, "");
 
+    // The same snapshot answers what every stored datapoint carries that a later merge could not
+    // take away — recorded here so that `ensureState` needs neither a read nor a write for the
+    // common case in which nothing shrank. Refreshed on every discover, kept until the next one:
+    // the adapter is the only writer of these attributes, so a datapoint first met in a later
+    // poll still finds an accurate answer here.
+    this.storedStates.clear();
+    this.storedBounds.clear();
+    for (const [fullId, obj] of Object.entries(adapterObjects)) {
+      const { states, bounds } = shrinkablesOf(obj.common);
+      if (states) {
+        this.storedStates.set(local(fullId), states);
+      }
+      if (bounds.length > 0) {
+        this.storedBounds.set(local(fullId), bounds);
+      }
+    }
+
     // Pass 1 — devices of UPSes the server no longer lists.
     const staleDevices = new Set<string>();
     for (const [fullId, obj] of Object.entries(adapterObjects)) {
@@ -1253,7 +1327,7 @@ export class StateManager {
       // with it. Only a leaf carries one; a parent that merely holds children has none.
       const parts = id.split(".");
       const successor = `${parts[0]}.${parts[1]}.${parts.slice(2).join("-")}`;
-      await this.carryRecordingFrom(adapterObjects[`${this.adapter.namespace}.${id}`], successor);
+      await this.carryUserSettingsFrom(adapterObjects[`${this.adapter.namespace}.${id}`], id, successor);
       this.adapter.log.debug(`Removing v0.1.0 dot-style object: ${id}`);
       await this.adapter.delObjectAsync(id);
       this.createdIds.delete(id);
@@ -1292,7 +1366,7 @@ export class StateManager {
       try {
         const successor = renamed[id];
         if (successor) {
-          await this.carryRecording(id, successor);
+          await this.carryUserSettings(id, successor);
         }
         await this.adapter.delObjectAsync(id);
         this.adapter.log.debug(`Removed deprecated state: ${id}`);
@@ -1338,12 +1412,22 @@ export class StateManager {
         this.pendingRecording.delete(id);
       }
     }
-    for (const key of [...this.warnedGarbageVars]) {
-      if (under(key)) {
-        this.warnedGarbageVars.delete(key);
+    for (const warned of [this.warnedGarbageVars, this.warnedChannelCollisions]) {
+      for (const key of [...warned]) {
+        if (under(key)) {
+          warned.delete(key);
+        }
+      }
+    }
+    for (const map of [this.storedStates, this.storedBounds]) {
+      for (const id of [...map.keys()]) {
+        if (under(id)) {
+          map.delete(id);
+        }
       }
     }
     this.fallbackNames.delete(prefix);
+    this.descriptionLabels.delete(prefix);
   }
 
   private async ensureObject(
@@ -1405,9 +1489,8 @@ export class StateManager {
     }
     // First contact with this object in this runtime: take away what a merge could never remove
     // later (a shrunk value list, bounds from a RANGE that no longer exists), then write the
-    // current picture on top. The enrichment that may re-add bounds runs after this, in the same
-    // poll — so a bound never outlives the LIST RANGE that produced it.
-    await this.clearShrinkableFields(id, common.states !== undefined);
+    // current picture on top.
+    await this.clearShrinkableFields(id, common);
     await this.adapter.extendObject(id, {
       type: "state",
       common,
@@ -1420,26 +1503,48 @@ export class StateManager {
   }
 
   /**
-   * Erase the fields of an EXISTING object that a later merge could never take away again, so the
-   * write that follows starts from a clean slate.
+   * Remove from an EXISTING object what a merge could never take away again — but ONLY when the
+   * stored picture really carries something the new one lacks.
    *
-   * `extendObject` merges key by key: a key the new picture does not carry SURVIVES, forever.
-   * Two kinds of field suffer from that and both are cleared here, in ONE read of the object:
+   * `extendObject` merges key by key: a key the new picture does not carry SURVIVES, forever. Two
+   * kinds of field suffer from that:
    *
    * - `common.states` can SHRINK between adapter versions or driver updates — a dropped entry
-   *   would linger in the dropdown and stay selectable.
+   *   would linger in the dropdown and stay selectable. Cleared when the stored list has a key the
+   *   new list does not; the new list is then written whole.
    * - `common.min`/`max` come from LIST RANGE alone. Once written they outlived the driver that
-   *   reported them: through restarts, and forever once the variable stopped being writable. The
-   *   consequence is not cosmetic — js-controller warns on every value outside the dead bounds.
+   *   reported them: forever once the variable stopped being writable, and js-controller warns on
+   *   every value outside the dead bounds. Cleared for a variable that is NOT writable now. A
+   *   writable one keeps them for the enrichment, which reconciles them against the live
+   *   LIST RANGE in the same poll (re-adding identical bounds costs no write since it compares).
    *
-   * `null` is what erases a key (node.extend copies null, skips undefined). Clearing is skipped
-   * entirely when the object carries none of them, so a steady poll costs no extra write.
+   * What the stored object carries comes from the namespace snapshot `pruneObjectTree` already
+   * took (`storedStates`/`storedBounds`), so the common case — nothing shrank — costs no read and
+   * no write at all. Measured before this guard existed (2026-09-12): every datapoint with a
+   * value list was torn down and rebuilt on EVERY adapter start, 566 single-object reads on top,
+   * and the rebuild went through `delObject`, which strikes the id from every room and function
+   * the user had assigned it to.
    *
    * @param id State object id
-   * @param clearStates Whether the caller is about to write a fresh `common.states`
+   * @param common The picture about to be written
+   * @param common.states The value list the new picture carries, if any
+   * @param common.write Whether the variable is writable now
    */
-  private async clearShrinkableFields(id: string, clearStates: boolean): Promise<void> {
-    await this.removeCommonFields(id, clearStates ? ["states", "min", "max"] : ["min", "max"]);
+  private async clearShrinkableFields(
+    id: string,
+    common: { states?: Record<string, string>; write: boolean },
+  ): Promise<void> {
+    const gone: string[] = [];
+    const storedKeys = this.storedStates.get(id);
+    if (common.states && storedKeys?.some(key => !(key in common.states!))) {
+      gone.push("states");
+    }
+    if (!common.write) {
+      gone.push(...(this.storedBounds.get(id) ?? []));
+    }
+    if (gone.length > 0) {
+      await this.removeCommonFields(id, gone);
+    }
   }
 
   /**
@@ -1453,26 +1558,27 @@ export class StateManager {
    * `null` is neither (E1004). Measured on the first inventory run this gate ever did for nut2:
    * 15 findings, all of them from writing `null`.
    *
-   * So the whole object is read, the attributes are deleted from a copy, and the copy is put back
-   * through `delObject` → `setObjectNotExists` — the ioBroker-native full replace. `setObject`
-   * would do the same in one step but is on the checker's deprecated list (S5054), and an entry in
-   * the exception register is not a fix. What goes back is the REAL object minus exactly those
-   * keys, so type, role, name, native and the user's recording (`common.custom`) all travel along;
-   * a repair of adapter-owned metadata must never cost the user their charts (design #31).
+   * So the whole object is read, the attributes are deleted from a copy, and the copy is written
+   * back through `setForeignObject` — the full replace, in ONE write. What goes back is the REAL
+   * object minus exactly those keys, so type, role, name, native and the user's recording
+   * (`common.custom`) all travel along.
    *
-   * Two consequences of the delete, both handled here:
-   * - `delObject` on a leaf takes the VALUE with it. It is read first and written back afterwards
-   *   with `ack: true`, so the round trip is invisible in the tree and `onStateChange` — which
-   *   ignores acknowledged writes — does not mistake it for a command.
-   * - The pair is not atomic. If the second half fails the datapoint is gone until the next start,
-   *   which recreates it; for a repair that runs once per object per runtime that is acceptable,
-   *   and it is the trade the fleet already makes (govee-smart, hassemu, homeconnect).
+   * ⚠️ Not `delObject` → `setObjectNotExists`, which this used to be (v0.15.0–v0.15.1): a delete
+   * takes the state VALUE with it (compensated back then) and — measured on a real js-controller
+   * 2026-09-12 — strikes the id from EVERY enum (`_delForeignObject` → `removeIdFromAllEnums`),
+   * which nothing compensated: the user's room and function assignments were silently lost.
+   * `setForeignObject` touches neither the value nor the enums (`_setObjectWithDefaultValue`
+   * writes the object only), and there is no window in which the datapoint is missing.
+   * `setObject` would do the same but is on the checker's deprecated list (S5054);
+   * `setForeignObject` is not (krobi 2026-09-12: the way for state objects, not only for the
+   * instance object).
    *
-   * @param id State object id
+   * @param id State object id (local)
    * @param fields The `common` attributes to remove
+   * @param existing The object as already read by the caller, to save a second read
    */
-  private async removeCommonFields(id: string, fields: string[]): Promise<void> {
-    const existing = await this.adapter.getObjectAsync(id);
+  private async removeCommonFields(id: string, fields: string[], existing?: ioBroker.Object | null): Promise<void> {
+    existing ??= await this.adapter.getObjectAsync(id);
     if (!existing?.common) {
       return;
     }
@@ -1484,36 +1590,45 @@ export class StateManager {
     for (const f of present) {
       delete common[f];
     }
-    const previous = await this.adapter.getStateAsync(id);
-    await this.adapter.delObjectAsync(id);
-    // The typings cannot express "this object minus a key", hence the cast.
-    await this.adapter.setObjectNotExistsAsync(id, { ...existing, common } as unknown as ioBroker.SettableObject);
-    if (previous && previous.val !== null && previous.val !== undefined) {
-      await this.adapter.setStateChangedAsync(id, { val: previous.val, ack: true });
-    }
+    // Only ever a state (ensureState/enrichStateMetadata are the callers), and the typings cannot
+    // express "this object minus a key" — hence the cast. The full id: the foreign call does not
+    // prefix the namespace.
+    await this.adapter.setForeignObject(`${this.adapter.namespace}.${id}`, {
+      ...existing,
+      common,
+    } as unknown as ioBroker.SettableStateObject);
   }
 
   /**
-   * Move a recording configuration from a renamed predecessor onto the state that replaces it.
-   * The adapter owns the datapoint, the user owns the recording — a rename by the adapter must
-   * not cost the user their charts.
+   * Move what the USER attached to a renamed predecessor onto the state that replaces it: the
+   * recording configuration and the room/function assignments. The adapter owns the datapoint,
+   * the user owns those — a rename by the adapter must cost neither the charts nor the rooms.
    *
    * @param fromId The id that is about to disappear
    * @param toId The id that continues the datapoint (may not exist yet)
    */
-  private async carryRecording(fromId: string, toId: string): Promise<void> {
+  private async carryUserSettings(fromId: string, toId: string): Promise<void> {
     const old = await this.adapter.getObjectAsync(fromId);
-    await this.carryRecordingFrom(old, toId);
+    await this.carryUserSettingsFrom(old, fromId, toId);
   }
 
   /**
-   * Same as {@link carryRecording}, for a predecessor already read from the object store.
+   * Same as {@link carryUserSettings}, for a predecessor already read from the object store.
    *
-   * @param old The predecessor object (or null/undefined)
+   * @param old The predecessor object (or null/undefined — then there is nothing to carry)
+   * @param fromId The id that is about to disappear
    * @param toId The id that continues the datapoint (may not exist yet)
    */
-  private async carryRecordingFrom(old: ioBroker.Object | null | undefined, toId: string): Promise<void> {
-    const custom = (old?.common as { custom?: Record<string, unknown> } | undefined)?.custom;
+  private async carryUserSettingsFrom(
+    old: ioBroker.Object | null | undefined,
+    fromId: string,
+    toId: string,
+  ): Promise<void> {
+    if (!old) {
+      return;
+    }
+    await this.carryEnumMembership(fromId, toId);
+    const custom = (old.common as { custom?: Record<string, unknown> } | undefined)?.custom;
     if (!custom || Object.keys(custom).length === 0) {
       return;
     }
@@ -1526,6 +1641,33 @@ export class StateManager {
     }
     await this.adapter.extendObject(toId, { common: { custom } });
     this.adapter.log.info(`Kept the recording settings of the renamed datapoint on ${toId}`);
+  }
+
+  /**
+   * Rename a datapoint inside every room and function it was assigned to.
+   *
+   * The delete of the old id strikes it from every enum (`_delForeignObject` →
+   * `removeIdFromAllEnums` in js-controller) — so the assignment has to move to the successor
+   * BEFORE the old object goes, in place, so the user's ordering in the room survives as well.
+   * `extendForeignObject` replaces a `members` list wholesale (js-controller empties it before the
+   * merge), so no dropped entry can linger.
+   *
+   * @param fromId The id that is about to disappear (local)
+   * @param toId The id that continues the datapoint (local)
+   */
+  private async carryEnumMembership(fromId: string, toId: string): Promise<void> {
+    const from = `${this.adapter.namespace}.${fromId}`;
+    const to = `${this.adapter.namespace}.${toId}`;
+    const enums = await this.adapter.getForeignObjectsAsync("enum.*", "enum");
+    for (const [enumId, enumObj] of Object.entries(enums)) {
+      const members = enumObj?.common?.members;
+      if (!Array.isArray(members) || !members.includes(from)) {
+        continue;
+      }
+      const moved = members.map(m => (m === from ? to : m)).filter((m, i, all) => all.indexOf(m) === i);
+      await this.adapter.extendForeignObjectAsync(enumId, { common: { members: moved } });
+      this.adapter.log.info(`Kept the assignment of the renamed datapoint ${toId} in ${enumId}`);
+    }
   }
 
   /**
@@ -1581,27 +1723,46 @@ export class StateManager {
     patch: { states?: Record<string, string> | null; min?: number | null; max?: number | null },
   ): Promise<void> {
     this.adapter.log.debug(`enrichStateMetadata ${id}: ${JSON.stringify(patch)}`);
+    if (patch.states === undefined && patch.min === undefined && patch.max === undefined) {
+      return;
+    }
+    // This runs after EVERY reconnect, for every writable variable, and the answer is almost
+    // always the one already stored — so the object is read once and only a real difference is
+    // written. `extendObject` itself never compares: each call is a write plus an objectChange
+    // broadcast to every subscriber (measured 2026-09-12 in js-controller: `ts` is refreshed and
+    // the object published unconditionally).
+    const existing = await this.adapter.getObjectAsync(id);
+    const current = (existing?.common ?? {}) as Record<string, unknown>;
+
     // `null` means the server no longer reports this attribute — and a merge can only ever ADD,
-    // so removal is a separate operation on the whole object (see removeCommonFields).
-    const gone = (["states", "min", "max"] as const).filter(f => patch[f] === null);
+    // so removal is a separate operation on the whole object (see removeCommonFields). A shrunk
+    // value list is a removal too: the stored list keeps every key a merge does not overwrite.
+    const localized = patch.states ? localizeStates(patch.states) : undefined;
+    const stored = shrinkablesOf(current);
+    const gone: string[] = [];
+    if (localized && stored.states?.some(key => !(key in localized))) {
+      gone.push("states");
+    }
+    for (const f of ["states", "min", "max"] as const) {
+      if (patch[f] === null && current[f] !== undefined && current[f] !== null) {
+        gone.push(f);
+      }
+    }
     if (gone.length > 0) {
-      await this.removeCommonFields(id, [...gone]);
+      await this.removeCommonFields(id, gone, existing);
     }
 
     const common: Record<string, unknown> = {};
-    if (patch.states) {
-      common.states = localizeStates(patch.states);
+    if (localized && (gone.includes("states") || !sameStates(current.states, localized))) {
+      common.states = localized;
     }
-    if (typeof patch.min === "number") {
+    if (typeof patch.min === "number" && current.min !== patch.min) {
       common.min = patch.min;
     }
-    if (typeof patch.max === "number") {
+    if (typeof patch.max === "number" && current.max !== patch.max) {
       common.max = patch.max;
     }
     if (Object.keys(common).length > 0) {
-      if (patch.states) {
-        await this.clearShrinkableFields(id, true);
-      }
       await this.adapter.extendObject(id, { common });
     }
   }

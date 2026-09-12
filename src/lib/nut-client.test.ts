@@ -452,6 +452,34 @@ describe("NutClient", () => {
         await mock.stop();
       }
     });
+
+    it("keeps a UPS whose line carries no description at all", async () => {
+      // upsd itself always quotes one (server/netlist.c: the configured `desc`, or literally
+      // "Description unavailable"). The branch exists for the other servers that speak this
+      // protocol (NAS firmware, home-grown upsd) — a bare `UPS <name>` line used to be dropped by
+      // the parser, and with it the whole UPS.
+      const mock = createMockNutServer(cmd => {
+        if (cmd === "LIST UPS") {
+          return ["BEGIN LIST UPS", "UPS bare", 'UPS ups1 "Backup UPS"', "END LIST UPS"];
+        }
+        return "ERR UNKNOWN-COMMAND";
+      });
+      const port = await mock.start();
+      try {
+        const client = new NutClient("127.0.0.1", port);
+        await client.connect();
+        const upsList = await client.listUps();
+        // Torn down BEFORE the assertion: with the socket still open, mock.stop() would wait for
+        // it and a failing expectation would surface as a timeout instead of its message.
+        client.destroy();
+        expect(upsList).toEqual([
+          { name: "bare", description: "" },
+          { name: "ups1", description: "Backup UPS" },
+        ]);
+      } finally {
+        await mock.stop();
+      }
+    });
   });
 
   // -----------------------------------------------------------------------

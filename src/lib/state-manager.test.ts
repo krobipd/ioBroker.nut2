@@ -65,20 +65,26 @@ function deepExtend(target: Record<string, any>, source: Record<string, any>): R
   return target;
 }
 
+const NS = "nut2.0";
+
 function createMockAdapter(): {
   adapter: any;
   objects: Map<string, MockObj>;
   states: Map<string, MockState>;
+  /** Enum objects (rooms, functions) by full id — the user's assignments live in their members. */
+  enums: Map<string, MockObj>;
   deletedIds: string[];
   logs: string[];
 } {
   const objects = new Map<string, MockObj>();
   const states = new Map<string, MockState>();
+  const enums = new Map<string, MockObj>();
   const deletedIds: string[] = [];
   const logs: string[] = [];
+  const local = (fullId: string): string => (fullId.startsWith(`${NS}.`) ? fullId.slice(NS.length + 1) : fullId);
 
   const adapter = {
-    namespace: "nut2.0",
+    namespace: NS,
     log: {
       info: (msg: string) => logs.push(`INFO: ${msg}`),
       debug: (msg: string) => logs.push(`DEBUG: ${msg}`),
@@ -93,11 +99,39 @@ function createMockAdapter(): {
     },
     getObjectAsync: (id: string) => Promise.resolve(objects.get(id) ?? null),
     getStateAsync: (id: string) => Promise.resolve(states.get(id) ?? null),
-    // The REPLACING write, as js-controller does it: the stored object becomes exactly what is
-    // handed in. That is what makes removing a `common` attribute possible at all — extendObject
-    // merges and would keep the key (with the value null, which the object checker rejects).
-    setObject: (id: string, obj: MockObj) => {
-      objects.set(id, JSON.parse(JSON.stringify(obj)) as MockObj);
+    // The REPLACING write, as js-controller does it (`_setObjectWithDefaultValue` → the stored
+    // object becomes exactly what is handed in). That is what makes removing a `common` attribute
+    // possible at all — extendObject merges and would keep the key (with the value null, which the
+    // object checker rejects). Unlike delObject it touches neither the state value nor the enums.
+    setForeignObject: (fullId: string, obj: MockObj) => {
+      objects.set(local(fullId), JSON.parse(JSON.stringify(obj)) as MockObj);
+      return Promise.resolve();
+    },
+    // Every enum object, flat by id — what `getForeignObjects("enum.*", "enum")` answers.
+    getForeignObjectsAsync: (pattern: string, type?: string) => {
+      const result: Record<string, MockObj> = {};
+      if (pattern === "enum.*" && (type === undefined || type === "enum")) {
+        for (const [id, obj] of enums) {
+          result[id] = obj;
+        }
+      }
+      return Promise.resolve(result);
+    },
+    // js-controller's one special case in the merge: a `members` list is EMPTIED before the
+    // extend, so the handed-in list replaces the stored one instead of merging into it
+    // (`_extendForeignObjectAsync`). Everything else merges like extendObject below.
+    extendForeignObjectAsync: (fullId: string, obj: Partial<MockObj>) => {
+      const store = fullId.startsWith("enum.") ? enums : objects;
+      const key = store === enums ? fullId : local(fullId);
+      const existing = store.get(key);
+      if (!existing) {
+        store.set(key, { type: obj.type ?? "state", common: obj.common ?? {}, native: obj.native ?? {} });
+        return Promise.resolve();
+      }
+      if (obj.common && "members" in obj.common) {
+        existing.common.members = [];
+      }
+      existing.common = deepExtend(existing.common ?? {}, obj.common ?? {});
       return Promise.resolve();
     },
     // Mirrors the REAL js-controller merge (7.2.2 → node.extend(true, old, new)): objects are
@@ -142,23 +176,90 @@ function createMockAdapter(): {
     },
     delObjectAsync: (id: string, _opts?: { recursive?: boolean }) => {
       deletedIds.push(id);
+      const gone: string[] = [];
       for (const key of objects.keys()) {
         if (key === id || key.startsWith(`${id}.`)) {
           objects.delete(key);
+          gone.push(key);
         }
       }
-      // js-controller takes the VALUE of a leaf with the object. A mock that keeps it would hide
-      // exactly the loss that removeCommonFields has to compensate.
+      // js-controller takes the VALUE of a leaf with the object.
       for (const key of [...states.keys()]) {
         if (key === id || key.startsWith(`${id}.`)) {
           states.delete(key);
+        }
+      }
+      // …and strikes the id from EVERY enum (`_delForeignObject` → `removeIdFromAllEnums`): the
+      // user's room and function assignments go with the object. This is the fourth consequence
+      // of a delete, and the one the mock did not model while the first three were compensated —
+      // which is how a delete-and-recreate on every start went unnoticed through three audits.
+      for (const key of gone) {
+        const full = `${NS}.${key}`;
+        for (const e of enums.values()) {
+          const members = e.common.members as string[] | undefined;
+          if (members?.includes(full)) {
+            e.common.members = members.filter(m => m !== full);
+          }
         }
       }
       return Promise.resolve();
     },
   };
 
-  return { adapter, objects, states, deletedIds, logs };
+  return { adapter, objects, states, enums, deletedIds, logs };
+}
+
+/**
+ * Put a datapoint into a room, the way the admin does it: the enum object lists the FULL id.
+ *
+ * @param enums the mock's enum store
+ * @param room enum id, e.g. "enum.rooms.cellar"
+ * @param localIds datapoints (local ids) to assign
+ */
+function assignToRoom(enums: Map<string, MockObj>, room: string, ...localIds: string[]): void {
+  enums.set(room, { type: "enum", common: { members: localIds.map(id => `${NS}.${id}`) }, native: {} });
+}
+
+/**
+ * A StateManager the way a RESTARTED adapter has it: fresh caches, and the discover-time snapshot
+ * of the namespace already taken (`discover()` runs `pruneObjectTree` before the first poll). The
+ * second runtime in these tests must go through that snapshot, because it is what decides whether
+ * a first contact has to remove anything.
+ *
+ * @param adapter mock adapter
+ * @param upsNames the UPSes the (fake) server lists
+ */
+async function restartedManager(adapter: any, ...upsNames: string[]): Promise<StateManager> {
+  const sm = new StateManager(adapter);
+  await sm.pruneObjectTree(new Set(upsNames.length ? upsNames : ["ups0"]));
+  return sm;
+}
+
+/**
+ * Count the writes that REPLACE or REMOVE the object behind one id: the replacing write and the
+ * delete. A steady runtime must produce none of either for a datapoint whose picture did not
+ * change; a real shrink produces exactly the replacing write, never the delete.
+ *
+ * @param adapter mock adapter
+ * @param id local state id to watch
+ */
+function countRebuilds(adapter: any, id: string): () => { replaced: number; deleted: number } {
+  const counts = { replaced: 0, deleted: 0 };
+  const realReplace = adapter.setForeignObject as (...a: unknown[]) => Promise<void>;
+  const realDelete = adapter.delObjectAsync as (...a: unknown[]) => Promise<void>;
+  adapter.setForeignObject = (...args: unknown[]) => {
+    if (args[0] === `${NS}.${id}`) {
+      counts.replaced++;
+    }
+    return realReplace(...args);
+  };
+  adapter.delObjectAsync = (...args: unknown[]) => {
+    if (args[0] === id) {
+      counts.deleted++;
+    }
+    return realDelete(...args);
+  };
+  return () => ({ ...counts });
 }
 
 // ---------------------------------------------------------------------------
@@ -422,6 +523,66 @@ describe("StateManager", () => {
         { name: "device.model", value: "5PX 1500" },
       ]);
       expect(nameEn(objects.get("ups0"))).toBe("Eaton 5PX 1500");
+    });
+
+    it("a reconnect does not clobber the manufacturer+model name", async () => {
+      // Found 2026-09-12: discover() re-ran ensureUpsDevice on every reconnect, which wrote the
+      // bare UPS name back over "Eaton Ellipse" — and updateDeviceName then SKIPPED the repair,
+      // because its memory said that name was already applied. Every UPS without a `desc` in
+      // ups.conf was called by its config name from the first reconnect until the next restart.
+      const { adapter, objects } = createMockAdapter();
+      const sm = new StateManager(adapter);
+      const vars = [
+        { name: "device.mfr", value: "Eaton" },
+        { name: "device.model", value: "Ellipse" },
+      ];
+      await sm.ensureUpsDevice("ups0", "Description unavailable");
+      await sm.updateDeviceName("ups0", "Description unavailable", vars);
+      expect(nameEn(objects.get("ups0"))).toBe("Eaton Ellipse");
+
+      // Reconnect: discover() runs again with the unchanged LIST UPS answer, then the poll.
+      await sm.ensureUpsDevice("ups0", "Description unavailable");
+      await sm.updateDeviceName("ups0", "Description unavailable", vars);
+      expect(nameEn(objects.get("ups0")), "the reconnect took the manufacturer+model name away").toBe("Eaton Ellipse");
+    });
+
+    it("does not rewrite the device object on a reconnect with the unchanged description", async () => {
+      // The rule behind the reconnect fix: no write when the label the adapter derives did not
+      // change. Measuring only the final name would let a version through that rewrites the
+      // device on every discover and lets the poll repair the name afterwards — one objectChange
+      // per UPS per reconnect, and the config name flickering through the admin in between.
+      const { adapter } = createMockAdapter();
+      const sm = new StateManager(adapter);
+      await sm.ensureUpsDevice("ups0", "Description unavailable");
+      let deviceWrites = 0;
+      const origExtend = adapter.extendObject as (...a: unknown[]) => Promise<void>;
+      adapter.extendObject = (...args: unknown[]) => {
+        if (args[0] === "ups0") {
+          deviceWrites++;
+        }
+        return origExtend(...args);
+      };
+
+      await sm.ensureUpsDevice("ups0", "Description unavailable");
+      expect(deviceWrites, "the device object was rewritten although nothing changed").toBe(0);
+    });
+
+    it("a description that CHANGES on the server still reaches the tree on the next discover", async () => {
+      // The guard above must be on the description the adapter last derived, not on "written
+      // once per runtime" — otherwise a `desc` added to ups.conf waits for an adapter restart.
+      const { adapter, objects } = createMockAdapter();
+      const sm = new StateManager(adapter);
+      await sm.ensureUpsDevice("ups0", "Description unavailable");
+      await sm.updateDeviceName("ups0", "Description unavailable", [{ name: "device.model", value: "Ellipse" }]);
+      expect(nameEn(objects.get("ups0"))).toBe("Ellipse");
+
+      await sm.ensureUpsDevice("ups0", "Cellar UPS");
+      expect(nameEn(objects.get("ups0"))).toBe("Cellar UPS");
+
+      // …and back: the fallback applies again instead of hiding behind its old memory.
+      await sm.ensureUpsDevice("ups0", "Description unavailable");
+      await sm.updateDeviceName("ups0", "Description unavailable", [{ name: "device.model", value: "Ellipse" }]);
+      expect(nameEn(objects.get("ups0"))).toBe("Ellipse");
     });
   });
 
@@ -853,24 +1014,20 @@ describe("StateManager", () => {
   });
 
   describe("clearing shrinkable fields", () => {
+    const id = "ups0.ups.beeper-status";
+    const vars = [{ name: "ups.beeper.status", value: "enabled" }];
+    const rw = new Set(["ups.beeper.status"]);
+
     /**
-     * Count the clearing round trips on one id. The clearing is `delObject` → `setObjectNotExists`
-     * (the checker forbids `setObject`), so the delete is what marks it.
+     * A second runtime on the same tree, after an OLDER version left an extra value in the list:
+     * the one case in which the list really has to shrink.
      *
-     * @param adapter mock adapter
-     * @param adapter.delObjectAsync the delete the clearing goes through
-     * @param id state id to watch
+     * @param objects the mock's object store
      */
-    function countClears(adapter: { delObjectAsync: unknown }, id: string): () => number {
-      let clears = 0;
-      const real = adapter.delObjectAsync as (...a: unknown[]) => Promise<void>;
-      adapter.delObjectAsync = (...args: unknown[]) => {
-        if (args[0] === id) {
-          clears++;
-        }
-        return real(...args);
-      };
-      return () => clears;
+    function leaveALegacyValue(objects: Map<string, MockObj>): void {
+      const obj = objects.get(id);
+      assert(obj, "precondition: the datapoint exists");
+      (obj.common.states as Record<string, string>).legacy = "Legacy";
     }
 
     it("writes NOTHING when there is no value list and no bounds to take away", async () => {
@@ -879,61 +1036,113 @@ describe("StateManager", () => {
       // them drops the datapoint for an instant.
       const { adapter, objects } = createMockAdapter();
       await new StateManager(adapter).updateVariables("ups0", [{ name: "device.mfr", value: "Eaton" }], new Set());
-      const id = "ups0.device.mfr";
-      expect(objects.get(id)?.common.states).toBeUndefined();
+      expect(objects.get("ups0.device.mfr")?.common.states).toBeUndefined();
 
-      const clears = countClears(adapter, id);
+      const rebuilds = countRebuilds(adapter, "ups0.device.mfr");
       // A SECOND manager = first contact with an EXISTING object, which is when the clearing runs.
-      await new StateManager(adapter).updateVariables("ups0", [{ name: "device.mfr", value: "Eaton" }], new Set());
-      expect(clears(), "the object was torn down although nothing had to be removed").toBe(0);
+      await (
+        await restartedManager(adapter)
+      ).updateVariables("ups0", [{ name: "device.mfr", value: "Eaton" }], new Set());
+      expect(rebuilds(), "the object was rebuilt although nothing had to be removed").toEqual({
+        replaced: 0,
+        deleted: 0,
+      });
     });
 
-    it("DOES clear when a value list has to go", async () => {
+    it("writes NOTHING when the value list is unchanged — nothing shrank, nothing to take away", async () => {
+      // Measured 2026-09-12: this exact case rebuilt the object on EVERY adapter start, for every
+      // datapoint with a value list (status.severity on every UPS, device.type, every catalog
+      // enum) — and the rebuild went through delObject, which strikes the id from every room.
       const { adapter, objects } = createMockAdapter();
-      const id = "ups0.ups.beeper-status";
-      await new StateManager(adapter).updateVariables(
-        "ups0",
-        [{ name: "ups.beeper.status", value: "enabled" }],
-        new Set(["ups.beeper.status"]),
-      );
-      expect(objects.get(id)?.common.states, "precondition: the datapoint carries a value list").toBeDefined();
+      await new StateManager(adapter).updateVariables("ups0", vars, new Set());
+      const before = JSON.stringify(objects.get(id)?.common.states);
+      assert(before, "precondition: the datapoint carries a value list");
 
-      const clears = countClears(adapter, id);
-      await new StateManager(adapter).updateVariables(
-        "ups0",
-        [{ name: "ups.beeper.status", value: "enabled" }],
-        new Set(["ups.beeper.status"]),
-      );
-      expect(clears(), "the shrinkable list was not cleared before the fresh write").toBeGreaterThan(0);
+      const rebuilds = countRebuilds(adapter, id);
+      await (await restartedManager(adapter)).updateVariables("ups0", vars, new Set());
+      expect(JSON.stringify(objects.get(id)?.common.states), "the list itself is unchanged").toBe(before);
+      expect(rebuilds(), "an unchanged value list was rebuilt").toEqual({ replaced: 0, deleted: 0 });
     });
 
-    it("keeps the datapoint's VALUE across the clearing", async () => {
-      // `delObject` on a leaf takes the value with it. Without the capture-and-restore the reading
-      // would be blank until the next poll — and the mock deletes it exactly like js-controller,
-      // so this test really measures the compensation instead of a mock that never lost anything.
-      const { adapter, states } = createMockAdapter();
-      const id = "ups0.ups.beeper-status";
-      const vars = [{ name: "ups.beeper.status", value: "enabled" }];
-      const rw = new Set(["ups.beeper.status"]);
+    it("a room assignment survives the next adapter start", async () => {
+      const { adapter, enums } = createMockAdapter();
+      await new StateManager(adapter).updateVariables("ups0", vars, new Set());
+      assignToRoom(enums, "enum.rooms.cellar", id);
+
+      await (await restartedManager(adapter)).updateVariables("ups0", vars, new Set());
+      expect(enums.get("enum.rooms.cellar")?.common.members, "the user's room assignment was lost").toEqual([
+        `${NS}.${id}`,
+      ]);
+    });
+
+    it("DOES replace the object when a value list has to shrink — and never deletes it", async () => {
+      const { adapter, objects } = createMockAdapter();
       await new StateManager(adapter).updateVariables("ups0", vars, rw);
+      leaveALegacyValue(objects);
+
+      const rebuilds = countRebuilds(adapter, id);
+      await (await restartedManager(adapter)).updateVariables("ups0", vars, rw);
+      const states = objects.get(id)?.common.states as Record<string, string>;
+      expect("legacy" in states, "the dropped value stayed selectable in the dropdown").toBe(false);
+      expect(Object.keys(states).sort()).toEqual(["disabled", "enabled", "muted"]);
+      expect(rebuilds().replaced, "a shrinking list needs the replacing write").toBeGreaterThan(0);
+      // The delete is what costs the user their rooms — a shrink must not go through it.
+      expect(rebuilds().deleted, "the object was deleted to shrink a list").toBe(0);
+    });
+
+    it("a room assignment survives even when a value has to go", async () => {
+      // The decisive case: the shrink really happens (the replacing write runs), and the room
+      // assignment still has to be there afterwards — that is why the write replaces instead of
+      // deleting (krobi 2026-09-12).
+      const { adapter, objects, enums } = createMockAdapter();
+      await new StateManager(adapter).updateVariables("ups0", vars, rw);
+      leaveALegacyValue(objects);
+      assignToRoom(enums, "enum.rooms.cellar", id);
+
+      await (await restartedManager(adapter)).updateVariables("ups0", vars, rw);
+      expect("legacy" in (objects.get(id)?.common.states as object), "precondition: the list shrank").toBe(false);
+      expect(enums.get("enum.rooms.cellar")?.common.members).toEqual([`${NS}.${id}`]);
+    });
+
+    it("writes nothing when the snapshot is stale and the list is already gone", async () => {
+      // The snapshot from discover() says "this object carries a value list"; by the time the
+      // poll gets there the list is gone (a repair in between, another writer). The removal then
+      // has nothing to take away and must not replace the object with an identical copy —
+      // mutation R3: the early return inside removeCommonFields is the last line of defence.
+      const { adapter, objects } = createMockAdapter();
+      await new StateManager(adapter).updateVariables("ups0", vars, rw);
+      leaveALegacyValue(objects);
+      const sm = await restartedManager(adapter); // snapshot taken WITH the legacy value
+      delete objects.get(id)!.common.states; // …and then the list disappears underneath it
+
+      const rebuilds = countRebuilds(adapter, id);
+      await sm.updateVariables("ups0", vars, rw);
+      expect(rebuilds().replaced, "an object without the field was replaced anyway").toBe(0);
+      expect(objects.get(id)?.common.states, "the fresh list is still written by the merge").toBeDefined();
+    });
+
+    it("keeps the datapoint's VALUE when a value has to go", async () => {
+      // The value lives in the states DB; the replacing write never touches it. (The delete did —
+      // the old code read it first and wrote it back, and this test used to measure that patch.)
+      const { adapter, objects, states } = createMockAdapter();
+      await new StateManager(adapter).updateVariables("ups0", vars, rw);
+      leaveALegacyValue(objects);
       expect(states.get(id)?.val, "precondition: the datapoint carries a value").toBe("enabled");
 
-      await new StateManager(adapter).updateVariables("ups0", vars, rw);
+      await (await restartedManager(adapter)).updateVariables("ups0", vars, rw);
       expect(states.get(id)?.val, "the value was lost when the object was rebuilt").toBe("enabled");
-      expect(states.get(id)?.ack, "the restored value must be acknowledged, not a command").toBe(true);
+      expect(states.get(id)?.ack, "the value must stay acknowledged, not become a command").toBe(true);
     });
 
-    it("keeps the user's recording across the clearing", async () => {
+    it("keeps the user's recording when a value has to go", async () => {
       const { adapter, objects } = createMockAdapter();
-      const id = "ups0.ups.beeper-status";
-      const vars = [{ name: "ups.beeper.status", value: "enabled" }];
-      const rw = new Set(["ups.beeper.status"]);
       await new StateManager(adapter).updateVariables("ups0", vars, rw);
+      leaveALegacyValue(objects);
       const obj = objects.get(id);
       assert(obj, "datapoint exists");
       obj.common.custom = { "history.0": { enabled: true } };
 
-      await new StateManager(adapter).updateVariables("ups0", vars, rw);
+      await (await restartedManager(adapter)).updateVariables("ups0", vars, rw);
       expect(objects.get(id)?.common.custom, "the recording belongs to the user and must survive").toEqual({
         "history.0": { enabled: true },
       });
@@ -1732,18 +1941,96 @@ describe("StateManager", () => {
 
       expect(extendCalled).toBe(false);
     });
+
+    /**
+     * Count every write that reaches one object — merge, replace or delete. The enrichment runs
+     * after EVERY reconnect, so an unchanged answer must cost none of them.
+     *
+     * @param adapter mock adapter
+     * @param id local state id to watch
+     */
+    function countWrites(adapter: any, id: string): () => number {
+      let writes = 0;
+      const rebuilds = countRebuilds(adapter, id);
+      const origExtend = adapter.extendObject as (...a: unknown[]) => Promise<void>;
+      adapter.extendObject = (...args: unknown[]) => {
+        if (args[0] === id) {
+          writes++;
+        }
+        return origExtend(...args);
+      };
+      return () => writes + rebuilds().replaced + rebuilds().deleted;
+    }
+
+    it("writes nothing when the LIST ENUM answer matches what the object already carries", async () => {
+      // Measured 2026-09-12: identical labels were written back on every reconnect, and
+      // extendObject never compares — every call is a write plus an objectChange broadcast.
+      const { adapter } = createMockAdapter();
+      const sm = new StateManager(adapter);
+      const id = "ups0.ups.beeper-status";
+      await sm.updateVariables(
+        "ups0",
+        [{ name: "ups.beeper.status", value: "enabled" }],
+        new Set(["ups.beeper.status"]),
+      );
+      const answer = { enabled: "enabled", disabled: "disabled", muted: "muted" };
+      await sm.enrichStateMetadata(id, { states: answer });
+
+      const writes = countWrites(adapter, id);
+      await sm.enrichStateMetadata(id, { states: answer });
+      expect(writes(), "an unchanged value list was written again").toBe(0);
+    });
+
+    it("writes nothing when the LIST RANGE answer matches the bounds the object already carries", async () => {
+      const { adapter } = createMockAdapter();
+      const sm = new StateManager(adapter);
+      const id = "ups0.battery.charge-low";
+      await sm.updateVariables("ups0", [{ name: "battery.charge.low", value: "20" }], new Set(["battery.charge.low"]));
+      await sm.enrichStateMetadata(id, { min: 10, max: 50 });
+
+      const writes = countWrites(adapter, id);
+      await sm.enrichStateMetadata(id, { min: 10, max: 50 });
+      expect(writes(), "unchanged bounds were written again").toBe(0);
+    });
+
+    it("still writes when only a label changed — the values are the same, the text is not", async () => {
+      const { adapter, objects } = createMockAdapter();
+      const sm = new StateManager(adapter);
+      const id = "ups0.input.transfer-reason";
+      await sm.updateVariables(
+        "ups0",
+        [{ name: "input.transfer.reason", value: "x" }],
+        new Set(["input.transfer.reason"]),
+      );
+      await sm.enrichStateMetadata(id, { states: { x: "x", y: "y" } });
+
+      await sm.enrichStateMetadata(id, { states: { x: "x", y: "Y changed" } });
+      expect(objects.get(id)?.common.states).toEqual({ x: "x", y: "Y changed" });
+    });
+
+    it("removes nothing when the caller withdraws a bound the object never had", async () => {
+      const { adapter } = createMockAdapter();
+      const sm = new StateManager(adapter);
+      const id = "ups0.battery.charge-low";
+      await sm.updateVariables("ups0", [{ name: "battery.charge.low", value: "20" }], new Set(["battery.charge.low"]));
+
+      const writes = countWrites(adapter, id);
+      await sm.enrichStateMetadata(id, { min: null, max: null });
+      expect(writes()).toBe(0);
+    });
   });
 
   describe("a value list that shrinks", () => {
     it("drops a value the device no longer offers instead of leaving it in the dropdown", async () => {
       // extendObject merges key by key, so a dropped entry would linger and stay writable.
       const { adapter, objects } = createMockAdapter();
-      const sm = new StateManager(adapter);
       objects.set("ups0.device.type", {
         type: "state",
         common: { type: "string", role: "text", name: "Device type", states: { ups: "ups", pdu: "pdu", gone: "gone" } },
         native: {},
       });
+      // An existing installation: the adapter starts, discovers (snapshot), then polls.
+      const sm = await restartedManager(adapter);
 
       await sm.updateVariables("ups0", [{ name: "device.type", value: "ups" }], new Set());
 
@@ -1780,6 +2067,46 @@ describe("StateManager", () => {
       const common = objects.get("ups0.ups.delay-shutdown")?.common;
       expect(common?.min).toBe(10);
       expect(common?.states).toBeUndefined();
+    });
+  });
+
+  describe("a renamed datapoint keeps the user's room assignment", () => {
+    // Same class as the recording: the datapoint lives on under a new id, and the delete of the
+    // old id strikes it from every enum — so the assignment has to move to the successor first.
+    it("moves the room assignment of info.online over to info.reachable", async () => {
+      const { adapter, objects, enums } = createMockAdapter();
+      objects.set("ups0.info.online", { type: "state", common: { type: "boolean", name: "Online" }, native: {} });
+      assignToRoom(enums, "enum.rooms.cellar", "ups0.info.online", "ups0.battery.charge");
+
+      await new StateManager(adapter).ensureUpsDevice("ups0", "Main UPS");
+
+      // In place, so the user's ordering in the room survives too.
+      expect(enums.get("enum.rooms.cellar")?.common.members).toEqual([
+        `${NS}.ups0.info.reachable`,
+        `${NS}.ups0.battery.charge`,
+      ]);
+    });
+
+    it("moves the room assignment of a v0.1.0 dot-style datapoint over to its new id", async () => {
+      const { adapter, objects, enums } = createMockAdapter();
+      objects.set("ups0", { type: "device", common: { name: "Main UPS" }, native: {} });
+      objects.set("ups0.battery.charge.low", { type: "state", common: { type: "number", name: "Low" }, native: {} });
+      assignToRoom(enums, "enum.functions.power", "ups0.battery.charge.low");
+
+      await new StateManager(adapter).pruneObjectTree(new Set(["ups0"]));
+
+      expect(enums.get("enum.functions.power")?.common.members).toEqual([`${NS}.ups0.battery.charge-low`]);
+    });
+
+    it("does not touch an enum the predecessor was never in", async () => {
+      const { adapter, objects, enums } = createMockAdapter();
+      objects.set("ups0.info.online", { type: "state", common: { type: "boolean", name: "Online" }, native: {} });
+      assignToRoom(enums, "enum.rooms.attic", "ups0.battery.charge");
+      const before = JSON.stringify(enums.get("enum.rooms.attic"));
+
+      await new StateManager(adapter).ensureUpsDevice("ups0", "Main UPS");
+
+      expect(JSON.stringify(enums.get("enum.rooms.attic"))).toBe(before);
     });
   });
 
@@ -2135,6 +2462,27 @@ describe("a dotless variable must not take a channel's id", () => {
     expect(objects.get("ups0.battery.charge")?.common.type).toBe("number");
   });
 
+  it("warns about a channel collision even after a garbage warning on the same name", async () => {
+    // Two different complaints, two different reasons — they used to share one dedup set, so
+    // whichever came first silenced the other. A dotless `voltage` that first carried garbage
+    // (a numeric name with text) and later had a `voltage.*` sibling appear got its collision
+    // swallowed: the tree was broken and nobody was told.
+    const { adapter, logs } = createMockAdapter();
+    const sm = new StateManager(adapter);
+    await sm.updateVariables("ups0", [{ name: "voltage", value: "not-a-number" }], new Set());
+    expect(logs.filter(l => l.startsWith("WARN") && l.includes("Discarding"))).toHaveLength(1);
+
+    await sm.updateVariables(
+      "ups0",
+      [
+        { name: "voltage", value: "not-a-number" },
+        { name: "voltage.nominal", value: "230" },
+      ],
+      new Set(),
+    );
+    expect(logs.filter(l => l.startsWith("WARN") && l.includes("a channel of that name exists"))).toHaveLength(1);
+  });
+
   it("creates a harmless dotless variable normally", async () => {
     const { adapter, objects, states } = createMockAdapter();
     const sm = new StateManager(adapter);
@@ -2178,7 +2526,9 @@ describe("bounds never outlive the LIST RANGE that produced them", () => {
     await new StateManager(adapter).enrichStateMetadata("ups0.battery.charge-low", { min: 10, max: 50 });
     expect(objects.get("ups0.battery.charge-low")?.common).toMatchObject({ min: 10, max: 50 });
 
-    await new StateManager(adapter).updateVariables("ups0", [{ name: "battery.charge.low", value: "20" }], new Set());
+    await (
+      await restartedManager(adapter)
+    ).updateVariables("ups0", [{ name: "battery.charge.low", value: "20" }], new Set());
     const after = objects.get("ups0.battery.charge-low")?.common ?? {};
     expect("min" in after).toBe(false);
     expect("max" in after).toBe(false);

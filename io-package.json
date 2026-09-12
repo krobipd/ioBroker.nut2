@@ -3,6 +3,19 @@
     "name": "nut2",
     "version": "0.15.1",
     "news": {
+      "NEXT": {
+        "en": "The adapter no longer removes its own data points from your rooms and functions at every start, and a renamed data point keeps its assignments too",
+        "de": "Der Adapter entfernt seine Datenpunkte nicht mehr bei jedem Start aus deinen Räumen und Gewerken, und ein umbenannter Datenpunkt behält seine Zuordnungen ebenfalls",
+        "ru": "Адаптер больше не удаляет свои точки данных из ваших комнат и функций при каждом запуске, а переименованная точка данных тоже сохраняет свои привязки",
+        "pt": "O adaptador já não remove os seus pontos de dados das suas divisões e funções a cada arranque, e um ponto de dados renomeado também mantém as suas atribuições",
+        "nl": "De adapter verwijdert zijn datapunten niet meer bij elke start uit je ruimtes en functies, en een hernoemd datapunt behoudt zijn toewijzingen ook",
+        "fr": "L'adaptateur ne retire plus ses points de données de vos pièces et fonctions à chaque démarrage, et un point de données renommé conserve aussi ses affectations",
+        "it": "L'adattatore non rimuove più i propri punti dati dalle tue stanze e funzioni a ogni avvio, e anche un punto dati rinominato mantiene le sue assegnazioni",
+        "es": "El adaptador ya no elimina sus puntos de datos de tus habitaciones y funciones en cada inicio, y un punto de datos renombrado también conserva sus asignaciones",
+        "pl": "Adapter nie usuwa już swoich punktów danych z Twoich pomieszczeń i funkcji przy każdym uruchomieniu, a zmieniony punkt danych również zachowuje swoje przypisania",
+        "uk": "Адаптер більше не вилучає свої точки даних із ваших кімнат і функцій під час кожного запуску, а перейменована точка даних також зберігає свої прив'язки",
+        "zh-cn": "适配器不再在每次启动时将其数据点从您的房间和功能中移除，重命名的数据点也会保留其分配"
+      },
       "0.15.1": {
         "en": "Ten more data points now explain themselves, the battery maintenance date names the NEXT service instead of the last one, and the upsmon trigger takes one line instead of a script",
         "de": "Zehn weitere Datenpunkte erklären sich jetzt selbst, das Wartungsdatum der Batterie nennt die NÄCHSTE statt der letzten Wartung, und der upsmon-Auslöser braucht eine Zeile statt eines Skripts",
@@ -80,19 +93,6 @@
         "pl": "Test połączenia naprawdę sprawdza dane logowania (loguje się), adapter zawsze się loguje, a zmieniony punkt danych zachowuje twoje zapisy",
         "uk": "Перевірка з'єднання тепер справді перевіряє облікові дані (виконує вхід), адаптер завжди входить у систему, а перейменована точка даних зберігає запис",
         "zh-cn": "连接测试现在会真正验证凭据（执行登录），适配器始终登录，重命名的数据点也会保留你的记录"
-      },
-      "0.11.0": {
-        "en": "A UPS added to or removed from the NUT server now appears or disappears at the next poll, without a restart; writes to the adapter's own states no longer end in a SET VAR error.",
-        "de": "Eine am NUT-Server hinzugefügte oder entfernte USV erscheint bzw. verschwindet beim nächsten Abruf ohne Neustart; Schreibzugriffe auf adaptereigene Datenpunkte enden nicht mehr im SET-VAR-Fehler.",
-        "ru": "ИБП, добавленный на сервер NUT или удалённый с него, появляется или исчезает при следующем опросе без перезапуска; запись в собственные состояния адаптера больше не даёт ошибку SET VAR.",
-        "pt": "Uma UPS adicionada ou removida no servidor NUT aparece ou desaparece na próxima consulta, sem reinício; escritas nos estados próprios do adaptador já não terminam num erro SET VAR.",
-        "nl": "Een op de NUT-server toegevoegde of verwijderde UPS verschijnt of verdwijnt bij de volgende poll zonder herstart; schrijven naar de eigen states van de adapter eindigt niet meer in een SET VAR-fout.",
-        "fr": "Un onduleur ajouté ou retiré sur le serveur NUT apparaît ou disparaît à l'interrogation suivante, sans redémarrage ; écrire dans les états propres de l'adaptateur ne produit plus d'erreur SET VAR.",
-        "it": "Un UPS aggiunto o rimosso sul server NUT compare o scompare al polling successivo senza riavvio; le scritture sugli stati propri dell'adapter non finiscono più in un errore SET VAR.",
-        "es": "Un SAI añadido o quitado en el servidor NUT aparece o desaparece en la siguiente consulta sin reinicio; escribir en los estados propios del adaptador ya no termina en un error SET VAR.",
-        "pl": "UPS dodany do serwera NUT lub z niego usunięty pojawia się lub znika przy następnym odpytaniu bez restartu; zapis do własnych stanów adaptera nie kończy się już błędem SET VAR.",
-        "uk": "ДБЖ, доданий на сервер NUT або видалений з нього, з'являється чи зникає під час наступного опитування без перезапуску; запис у власні стани адаптера більше не спричиняє помилку SET VAR.",
-        "zh-cn": "在 NUT 服务器上新增或移除的 UPS 会在下次轮询时出现或消失，无需重启；写入适配器自身状态不再产生 SET VAR 错误。"
       }
     },
     "plugins": {
