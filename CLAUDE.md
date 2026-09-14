@@ -132,12 +132,16 @@ npm run format:check  # Prettier --check
 npm run check         # tsc --noEmit (Type-Check)
 ```
 
-**Ausschlüsse in den beiden format-Skripten** (Klasse 1 nach [[reference_prettier_vs_consistency_master]] —
-Dateien, deren FORMAT ein Werkzeug vorgibt, das Prettier nicht kennt; **nie** eine `.prettierignore`,
-die meldet der Prüfbot als veraltete Konfigurationsdatei, W0084/W5048). ⚠️ **„Wird oft neu
-geschrieben" ist KEIN Ausschlussgrund** (krobi 2026-09-07): eine gemeldete Datei wird formatiert,
-auch wenn sie morgen wieder anfällt — zwei Sekunden je Lauf sind billiger als ein blinder Fleck, der
-bleibt. Deshalb steht `.remember/` (Zustandsdateien des Remember-Plugins) NICHT mehr in der Liste:
-`build/` (esbuild-Ausgabe) · `io-package.json` (Release-Skript, `sync-iopackage-from-i18n.py` und der
-Konsistenz-Autofix schreiben aufgeklapptes JSON) · `.github/dependabot.yml` (Bot-Format, einfache
-Anführungszeichen, Flottenentscheid 2026-07-01).
+**Ausschlüsse in den beiden format-Skripten — die Flotten-Fassung, seit 2026-09-14 per Konsistenz-Autofix
+gesetzt** (Regel in `Entwicklung/CLAUDE_PACKAGES.md`, Abschnitt prettier): ausgeschlossen wird, was IM REPO
+liegt und eine FREMDE Formatierungsautorität hat — (1) ein Werkzeug schreibt sie (`build/`, `io-package.json`
+
+- `README.md` durch das Release-Skript, `CHANGELOG_OLD.md`, `package-lock.json`, `test/objects.inventory.json`,
+  `.github/dependabot.yml`, …), (2) der Konsistenz-Master ist die Autorität (`tsconfig*.json`,
+  `.releaseconfig.json`, `.vscode/**`, die master-verglichenen `.github`-Dateien). Alles andere wird geprüft,
+  auch `docs/` und diese Datei. **Nie** eine `.prettierignore` (Prüfbot W0084/W5048). ⚠️ **„Wird oft neu
+  geschrieben" ist KEIN Ausschlussgrund** (krobi 2026-09-07) — `.remember/` (Zustandsdateien des
+  Remember-Plugins) steht deshalb nicht im Skript, sondern strukturell in der Wurzel-`.gitignore` (prettier
+  liest sie als Ignore-Quelle) und als `.remember/**` in den `ignores` der `eslint.config.mjs` (ESLint liest die
+  `.gitignore` NICHT; der Abkühl-Marker `tmp/last-ndc.ts` ist kein TypeScript) — beides Flotten-Gates mit
+  Autofix (`audit_remember_gitignore`, `audit_remember_eslint_ignore`).
