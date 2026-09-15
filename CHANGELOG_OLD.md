@@ -1,5 +1,9 @@
 # Older changes
 
+## 0.12.1 (2026-09-02)
+
+- Fixed: the "Test connection" button in the settings stayed silent — clicking it produced no result at all. It answers again, on every instance updated from 0.9.0 or later
+
 ## 0.12.0 (2026-09-02)
 
 - Fixed: the connection test now really verifies the username and password — it logs in to the NUT server and only then reports success, instead of accepting anything you type (#17)

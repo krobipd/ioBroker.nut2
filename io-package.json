@@ -1,9 +1,9 @@
 {
   "common": {
     "name": "nut2",
-    "version": "0.15.1",
+    "version": "0.16.0",
     "news": {
-      "NEXT": {
+      "0.16.0": {
         "en": "The adapter no longer removes its own data points from your rooms and functions at every start, and a renamed data point keeps its assignments too",
         "de": "Der Adapter entfernt seine Datenpunkte nicht mehr bei jedem Start aus deinen Räumen und Gewerken, und ein umbenannter Datenpunkt behält seine Zuordnungen ebenfalls",
         "ru": "Адаптер больше не удаляет свои точки данных из ваших комнат и функций при каждом запуске, а переименованная точка данных тоже сохраняет свои привязки",

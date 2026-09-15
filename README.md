@@ -246,7 +246,7 @@ Any write to `nut2.0.notify` triggers an immediate poll of all UPS devices; an e
     ### **WORK IN PROGRESS**
 -->
 
-### **WORK IN PROGRESS**
+### 0.16.0 (2026-09-15)
 
 - Fixed: every adapter start silently removed the status severity, the device type, every dropdown and every bounded value from the rooms and functions the user had assigned them to
 - Fixed: when a dropdown list or a value range really shrinks, the data point keeps its value, its recording settings and its room and function assignments
@@ -299,10 +299,6 @@ Any write to `nut2.0.notify` triggers an immediate poll of all UPS devices; an e
 - Fixed: model and other text values no longer carry the padding some UPS models send along
 - Fixed: channel names from older adapter versions are corrected instead of staying as they were
 - Fixed: the connection test answers in your language now, like the rest of the settings page
-
-### 0.12.1 (2026-09-02)
-
-- Fixed: the "Test connection" button in the settings stayed silent — clicking it produced no result at all. It answers again, on every instance updated from 0.9.0 or later
 
 [Older changelogs can be found there](CHANGELOG_OLD.md)
 
