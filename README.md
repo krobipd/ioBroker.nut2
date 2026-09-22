@@ -246,7 +246,7 @@ Any write to `nut2.0.notify` triggers an immediate poll of all UPS devices; an e
     ### **WORK IN PROGRESS**
 -->
 
-### 0.16.0 (2026-09-15)
+### 0.16.0 (2026-09-15) — stable
 
 - Fixed: every adapter start silently removed the status severity, the device type, every dropdown and every bounded value from the rooms and functions the user had assigned them to
 - Fixed: when a dropdown list or a value range really shrinks, the data point keeps its value, its recording settings and its room and function assignments
