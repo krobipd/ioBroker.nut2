@@ -7,6 +7,8 @@ vi.mock("@iobroker/adapter-core", () => ({
   },
 }));
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { StateManager, nutVarToStateId, nutVarToReadableName, sanitizeUpsName } from "./state-manager";
 
 /**
@@ -2773,5 +2775,85 @@ describe("N19 a variable that becomes writable later gets write:true in the same
     await sm.updateVariables("ups0", [{ name: "ups.delay.shutdown", value: "20" }], new Set(["ups.delay.shutdown"]));
     expect(objects.get("ups0.ups.delay-shutdown")?.common.write).toBe(true);
     expect(objects.get("ups0.ups.delay-shutdown")?.common.role).toBe("level.timer");
+  });
+});
+
+describe("D2/D3 the catalog covers the NUT domains, outlets, groups and commands", () => {
+  const names = async (vars: string[]): Promise<Record<string, unknown>> => {
+    const { adapter, objects } = createMockAdapter();
+    const sm = new StateManager(adapter);
+    await sm.updateVariables(
+      "ups0",
+      vars.map(name => ({ name, value: "1" })),
+      new Set(),
+    );
+    const out: Record<string, unknown> = {};
+    for (const v of vars) {
+      out[v] = objects.get(nutVarToStateId("ups0", v))?.common;
+    }
+    return out;
+  };
+
+  it.each([
+    "output.bypass.voltage.high.warning",
+    "input.servicebypass.realpower",
+    "output.inverter.power.percent",
+    "output.servicebypass.current",
+    "output.L1.power.percent",
+    "output.realpower",
+    "output.powerfactor",
+    "input.bypass.L1-N.voltage",
+    "outlet.1.voltage.status",
+    "outlet.2.current.high.critical",
+    "outlet.group.1.current.nominal",
+    "ambient.1.humidity.high.warning",
+    "ambient.2.temperature.maximum",
+    "ambient.1.contacts.2.config",
+  ])("%s has a translated name and an explanation", async v => {
+    const common = (await names([v]))[v] as { name: Record<string, string>; desc?: Record<string, string> };
+    expect(common.name.de, v).toBeDefined();
+    expect(common.name.de).not.toBe(common.name.en);
+    expect(common.desc?.en, v).toBeDefined();
+  });
+
+  it("keeps the phase and sensor numbers as markers", async () => {
+    const got = await names(["output.L1.power.percent", "ambient.2.temperature.maximum"]);
+    // The I18n mock answers with the key itself — the key IS the catalog entry that was found.
+    expect((got["output.L1.power.percent"] as { name: Record<string, string> }).name.de).toBe(
+      "L1 output.power.percent_de",
+    );
+    expect((got["ambient.2.temperature.maximum"] as { name: Record<string, string> }).name.de).toBe(
+      "2 ambient.temperature.maximum_de",
+    );
+  });
+
+  it("D10: a daisy-chained unit's values get the catalog name with the unit as marker", async () => {
+    const got = await names(["device.3.ups.load", "device.1.input.voltage", "device.2.outlet.1.status"]);
+    expect((got["device.3.ups.load"] as { name: Record<string, string> }).name.de).toBe("D3 ups.load_de");
+    expect((got["device.1.input.voltage"] as { name: Record<string, string> }).name.de).toBe("D1 input.voltage_de");
+    expect((got["device.2.outlet.1.status"] as { name: Record<string, string> }).name.de).toBe("D2 1 outlet.status_de");
+  });
+
+  it("names every command the drivers offer, with ⚠ where the load loses power", async () => {
+    const { adapter, objects } = createMockAdapter();
+    const sm = new StateManager(adapter);
+    await sm.createCommandButtons("ups0", [
+      { name: "outlet.group.2.load.off" },
+      { name: "driver.killpower" },
+      { name: "load.cycle" },
+      { name: "experimental.ve-direct.get" },
+    ]);
+    const c = (id: string): { name: Record<string, string>; desc: Record<string, string> } =>
+      objects.get(`ups0.commands.${id}`)?.common as { name: Record<string, string>; desc: Record<string, string> };
+    expect(c("outlet-group-2-load-off").name.de).toBe("2 cmdOutletGroupLoadOff_de");
+    // The texts behind the keys (the mock does not translate): ⚠ where the load loses power.
+    const en = JSON.parse(readFileSync(join(__dirname, "..", "..", "admin", "i18n", "en.json"), "utf8")) as Record<
+      string,
+      string
+    >;
+    expect(en[c("outlet-group-2-load-off").desc.en].startsWith("⚠")).toBe(true);
+    expect(en[c("driver-killpower").desc.en].startsWith("⚠")).toBe(true);
+    expect(en[c("load-cycle").desc.en].startsWith("⚠")).toBe(true);
+    expect(en[c("experimental-ve-direct-get").desc.en]).toContain("commands.execute");
   });
 });
