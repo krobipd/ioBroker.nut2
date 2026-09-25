@@ -1,10 +1,12 @@
 {
   "name": "ups-edge-cases",
-  "description": "Every special case the adapter has explicit code for",
+  "description": "Rack #3 UPS",
+  "source": "Every special case the adapter has explicit code for; '26,9' is the nut-names.txt example of battery.voltage.high",
   "vars": {
     "device.type": "ups",
     "device.mfr": "Edge  ",
     "device.model": "Case 1 ",
+    "device.location": "Keller – Raum 2 ✓",
     "ups.status": "OB LB DISCHRG RB OVER ALARM TRIM BOOST CAL BYPASS FSD WAIT ECO TEST OVERHEAT SOMETHINGNEW",
     "driver.flag.ignorelb": "enabled",
     "driver.flag.allow_killpower": "0",
@@ -17,8 +19,10 @@
     "input.phases": "1",
     "ups.load": "0",
     "device.part": "0012345",
-    "ups.firmware": "v1.2 \"beta\" \\ build",
+    "ups.firmware": "v1.2 \"beta\" \\ build #7",
     "battery.voltage": "13.6",
+    "battery.voltage.high": "26,9",
+    "input.voltage": "",
     "battery.runtime": "3600",
     "ups.efficiency": "97",
     "ups.realpower": "540",
@@ -34,9 +38,9 @@
     "driver.flag.ignorelb": "enabled",
     "ups.timer.shutdown": "-1"
   },
-  "enum": {},
   "range": {
     "ups.timer.shutdown": [["0", "300"]]
   },
-  "cmd": ["load.off", "driver.private.unknown"]
+  "cmd": ["load.off", "driver.private.unknown"],
+  "enum": {}
 }

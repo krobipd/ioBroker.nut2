@@ -1,0 +1,16 @@
+{
+  "name": "u_p",
+  "id": "u_p-2",
+  "description": "Lab UPS 2",
+  "source": "sanitizes to the same id as u.p",
+  "vars": {
+    "device.type": "ups",
+    "device.mfr": "Eaton",
+    "device.model": "Ellipse ECO 650",
+    "ups.status": "OL"
+  },
+  "rw": {},
+  "enum": {},
+  "range": {},
+  "cmd": []
+}

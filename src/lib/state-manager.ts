@@ -97,7 +97,14 @@ const COMMAND_I18N: Record<string, I18nKey> = {
   "outlet.group.load.off.delay": "cmdOutletGroupLoadOffDelay",
   "outlet.group.load.on.delay": "cmdOutletGroupLoadOnDelay",
   "outlet.group.load.cycle.delay": "cmdOutletGroupLoadCycleDelay",
+  "outlet.group.shutdown.return": "cmdOutletGroupShutdownReturn",
+  "outlet.group.shutdown.stayoff": "cmdOutletGroupShutdownStayoff",
+  "outlet.group.shutdown.reboot": "cmdOutletGroupShutdownReboot",
+  "outlet.group.shutdown.reboot.graceful": "cmdOutletGroupShutdownRebootGraceful",
 };
+
+/** Every ups.conf setting a driver echoes lives under this prefix (drivers/main.c). */
+const DRIVER_PARAMETER_PREFIX = "driver.parameter.";
 
 const TRANSLATED_VARIABLES = new Set<I18nKey>([
   "ambient.address",
@@ -108,6 +115,9 @@ const TRANSLATED_VARIABLES = new Set<I18nKey>([
   "ambient.firmware",
   "ambient.humidity",
   "ambient.humidity.alarm",
+  "ambient.humidity.alarm.enable",
+  "ambient.humidity.alarm.maximum",
+  "ambient.humidity.alarm.minimum",
   "ambient.humidity.high",
   "ambient.humidity.high.critical",
   "ambient.humidity.high.warning",
@@ -125,6 +135,9 @@ const TRANSLATED_VARIABLES = new Set<I18nKey>([
   "ambient.present",
   "ambient.temperature",
   "ambient.temperature.alarm",
+  "ambient.temperature.alarm.enable",
+  "ambient.temperature.alarm.maximum",
+  "ambient.temperature.alarm.minimum",
   "ambient.temperature.high",
   "ambient.temperature.high.critical",
   "ambient.temperature.high.warning",
@@ -145,6 +158,8 @@ const TRANSLATED_VARIABLES = new Set<I18nKey>([
   "battery.charger.status",
   "battery.charger.type",
   "battery.current",
+  "battery.current.maximum",
+  "battery.current.minimum",
   "battery.current.total",
   "battery.date",
   "battery.date.maintenance",
@@ -170,6 +185,8 @@ const TRANSLATED_VARIABLES = new Set<I18nKey>([
   "battery.voltage.cell.min",
   "battery.voltage.high",
   "battery.voltage.low",
+  "battery.voltage.maximum",
+  "battery.voltage.minimum",
   "battery.voltage.nominal",
   "device.contact",
   "device.count",
@@ -183,6 +200,7 @@ const TRANSLATED_VARIABLES = new Set<I18nKey>([
   "device.type",
   "device.uptime",
   "device.usb.version",
+  "driver.debug",
   "driver.flag.allow_killpower",
   "driver.flag.ignorelb",
   "driver.name",
@@ -195,6 +213,7 @@ const TRANSLATED_VARIABLES = new Set<I18nKey>([
   "driver.version.data",
   "driver.version.internal",
   "driver.version.usb",
+  "experimental.output.energy",
   "experimental.ups.mode.buzzwords",
   "input.alarm",
   "input.bypass.alarm",
@@ -211,6 +230,7 @@ const TRANSLATED_VARIABLES = new Set<I18nKey>([
   "input.bypass.frequency",
   "input.bypass.frequency.nominal",
   "input.bypass.load",
+  "input.bypass.phases",
   "input.bypass.power",
   "input.bypass.power.maximum",
   "input.bypass.power.maximum.percent",
@@ -252,6 +272,7 @@ const TRANSLATED_VARIABLES = new Set<I18nKey>([
   "input.frequency.nominal",
   "input.frequency.nominal.range",
   "input.frequency.status",
+  "input.id",
   "input.load",
   "input.phase.shift",
   "input.phases",
@@ -323,6 +344,7 @@ const TRANSLATED_VARIABLES = new Set<I18nKey>([
   "input.transfer.trim.low",
   "input.voltage",
   "input.voltage.extended",
+  "input.voltage.fault",
   "input.voltage.high.critical",
   "input.voltage.high.warning",
   "input.voltage.low.critical",
@@ -343,11 +365,13 @@ const TRANSLATED_VARIABLES = new Set<I18nKey>([
   "outlet.current.low.warning",
   "outlet.current.maximum",
   "outlet.current.status",
+  "outlet.delay.reboot",
   "outlet.delay.shutdown",
   "outlet.delay.start",
   "outlet.desc",
   "outlet.designator",
   "outlet.ecocontrol",
+  "outlet.frequency",
   "outlet.group.alarm",
   "outlet.group.color",
   "outlet.group.count",
@@ -358,6 +382,9 @@ const TRANSLATED_VARIABLES = new Set<I18nKey>([
   "outlet.group.current.low.warning",
   "outlet.group.current.nominal",
   "outlet.group.current.status",
+  "outlet.group.delay.reboot",
+  "outlet.group.delay.shutdown",
+  "outlet.group.delay.start",
   "outlet.group.desc",
   "outlet.group.id",
   "outlet.group.input",
@@ -368,6 +395,9 @@ const TRANSLATED_VARIABLES = new Set<I18nKey>([
   "outlet.group.powerfactor",
   "outlet.group.realpower",
   "outlet.group.status",
+  "outlet.group.timer.reboot",
+  "outlet.group.timer.shutdown",
+  "outlet.group.timer.start",
   "outlet.group.type",
   "outlet.group.voltage",
   "outlet.group.voltage.high.critical",
@@ -535,6 +565,7 @@ const TRANSLATED_VARIABLES = new Set<I18nKey>([
   "ups.firmware.aux",
   "ups.id",
   "ups.load",
+  "ups.load.energysave",
   "ups.load.high",
   "ups.mfr",
   "ups.mfr.date",
@@ -644,7 +675,7 @@ function withVariantMarker(label: LocalizedName, markers: string[]): LocalizedNa
  *
  * @param cmdName NUT command name
  */
-function commandCatalogEntry(cmdName: string): { key: I18nKey; markers: string[] } | undefined {
+export function commandCatalogEntry(cmdName: string): { key: I18nKey; markers: string[] } | undefined {
   const direct = COMMAND_I18N[cmdName];
   if (direct) {
     return { key: direct, markers: [] };
@@ -654,13 +685,28 @@ function commandCatalogEntry(cmdName: string): { key: I18nKey; markers: string[]
   return key && variant ? { key, markers: variant.markers } : undefined;
 }
 
-function varTranslation(nutVarName: string): LocalizedName | undefined {
+/**
+ * The catalog label of a NUT variable (variants keep their marker), or undefined when the catalog
+ * does not know the name.
+ *
+ * @param nutVarName NUT variable name
+ */
+export function varTranslation(nutVarName: string): LocalizedName | undefined {
   if (TRANSLATED_VARIABLES.has(nutVarName as I18nKey)) {
     return tName(nutVarName as I18nKey);
   }
   const variant = splitVariant(nutVarName);
   if (variant && TRANSLATED_VARIABLES.has(variant.generic as I18nKey)) {
     return withVariantMarker(tName(variant.generic as I18nKey), variant.markers);
+  }
+  // driver.parameter.<key> echoes a ups.conf setting (drivers/main.c): the key is whatever the
+  // driver accepts and stays as it is, the translated word says what kind of value it is.
+  if (nutVarName.startsWith(DRIVER_PARAMETER_PREFIX)) {
+    const key = nutVarName.slice(DRIVER_PARAMETER_PREFIX.length);
+    const label = tName("driverParameter");
+    return typeof label === "string"
+      ? `${label} ${key}`
+      : (Object.fromEntries(Object.entries(label).map(([lang, text]) => [lang, `${text} ${key}`])) as LocalizedName);
   }
   return undefined;
 }
@@ -1183,6 +1229,36 @@ const VAR_DESC_I18N: Record<string, I18nKey> = {
   "ups.type": "descUpsType",
   "ups.vendorid": "descUpsVendorid",
   "ups.watchdog.status": "descUpsWatchdogStatus",
+  "ambient.contacts.name": "descAmbientContactsName",
+  "ambient.firmware": "descAmbientFirmware",
+  "ambient.humidity.alarm.enable": "descAmbientHumidityAlarmEnable",
+  "ambient.humidity.alarm.maximum": "descAmbientHumidityAlarmMaximum",
+  "ambient.humidity.alarm.minimum": "descAmbientHumidityAlarmMinimum",
+  "ambient.mfr": "descAmbientMfr",
+  "ambient.model": "descAmbientModel",
+  "ambient.name": "descAmbientName",
+  "ambient.temperature.alarm.enable": "descAmbientTemperatureAlarmEnable",
+  "ambient.temperature.alarm.maximum": "descAmbientTemperatureAlarmMaximum",
+  "ambient.temperature.alarm.minimum": "descAmbientTemperatureAlarmMinimum",
+  "battery.current.maximum": "descBatteryCurrentMaximum",
+  "battery.current.minimum": "descBatteryCurrentMinimum",
+  "battery.voltage.maximum": "descBatteryVoltageMaximum",
+  "battery.voltage.minimum": "descBatteryVoltageMinimum",
+  "driver.debug": "descDriverDebug",
+  "input.bypass.phases": "descInputBypassPhases",
+  "input.id": "descInputId",
+  "input.voltage.fault": "descInputVoltageFault",
+  "outlet.delay.reboot": "descOutletDelayReboot",
+  "outlet.frequency": "descOutletFrequency",
+  "outlet.group.delay.reboot": "descOutletGroupDelayReboot",
+  "outlet.group.delay.shutdown": "descOutletGroupDelayShutdown",
+  "outlet.group.delay.start": "descOutletGroupDelayStart",
+  "outlet.group.name": "descOutletGroupName",
+  "outlet.group.timer.reboot": "descOutletGroupTimerReboot",
+  "outlet.group.timer.shutdown": "descOutletGroupTimerShutdown",
+  "outlet.group.timer.start": "descOutletGroupTimerStart",
+  "outlet.name": "descOutletName",
+  "ups.load.energysave": "descUpsLoadEnergysave",
 };
 
 /** Explanations for the channels — what kind of readings live below them. */
@@ -1207,14 +1283,17 @@ const CHANNEL_DESC_I18N: Record<string, I18nKey> = {
  *
  * @param nutVarName NUT variable name
  */
-function varDescription(nutVarName: string): LocalizedName | undefined {
+export function varDescription(nutVarName: string): LocalizedName | undefined {
   const key = VAR_DESC_I18N[nutVarName];
   if (key) {
     return tDesc(key);
   }
   const generic = genericVariantOf(nutVarName);
   const genericKey = generic ? VAR_DESC_I18N[generic] : undefined;
-  return genericKey ? tDesc(genericKey) : undefined;
+  if (genericKey) {
+    return tDesc(genericKey);
+  }
+  return nutVarName.startsWith(DRIVER_PARAMETER_PREFIX) ? tDesc("descDriverParameter") : undefined;
 }
 
 /** Severity level → its label key (0 = OK … 4 = emergency). */
@@ -1307,6 +1386,8 @@ export class StateManager {
    * would derive) is what gives an existing device its pictogram exactly once and a restart none.
    */
   private readonly storedIcons = new Map<string, string>();
+  /** Every id the namespace held at the last `pruneObjectTree` snapshot (local, without namespace). */
+  private readonly storedIds = new Set<string>();
   /**
    * What the STORED objects carry, from the namespace snapshot `pruneObjectTree` takes on every
    * discover: the keys of `common.states` and which of `common.min`/`max` are set, per id. This
@@ -1753,14 +1834,23 @@ export class StateManager {
   }
 
   /**
-   * Create button states for instant commands.
+   * Create button states for instant commands — and remove the ones LIST CMD no longer lists.
+   *
+   * The object tree follows LIST CMD in both directions: a command the driver dropped (driver
+   * update, other driver, device swapped) would otherwise keep a button that onStateChange
+   * refuses forever. A UPS without any command gets no `commands` channel at all — neither an
+   * empty channel nor an `execute` field that could never run anything.
    *
    * @param upsName UPS identifier
    * @param commands Commands from LIST CMD
    */
   async createCommandButtons(upsName: string, commands: NutCommand[]): Promise<void> {
-    await this.ensureChannel(upsName, "commands");
     this.commandNames.set(upsName, new Set(commands.map(c => c.name)));
+    await this.removeUnlistedCommands(upsName, commands);
+    if (commands.length === 0) {
+      return;
+    }
+    await this.ensureChannel(upsName, "commands");
 
     // One text datapoint per UPS runs a command WITH its parameter, written the way upscmd takes
     // it: "load.off.delay 120". The buttons below cannot carry a value.
@@ -1795,6 +1885,37 @@ export class StateManager {
         desc: entry ? tDesc(descKeyOf(entry.key)) : undefined,
         def: false,
       });
+    }
+  }
+
+  /**
+   * Delete what the stored tree holds under `<ups>.commands` that the current LIST CMD does not
+   * produce. Read from the `pruneObjectTree` snapshot, so the common case (nothing dropped) costs
+   * no broker round-trip.
+   *
+   * @param upsName UPS identifier
+   * @param commands Commands from LIST CMD
+   */
+  private async removeUnlistedCommands(upsName: string, commands: NutCommand[]): Promise<void> {
+    const channel = `${upsName}.commands`;
+    const wanted = new Set<string>();
+    if (commands.length > 0) {
+      wanted.add(channel);
+      wanted.add(`${channel}.execute`);
+      for (const cmd of commands) {
+        wanted.add(`${channel}.${cmd.name.replace(/\./g, "-")}`);
+      }
+    }
+    const unlisted = [...this.storedIds].filter(
+      id => (id === channel || id.startsWith(`${channel}.`)) && !wanted.has(id),
+    );
+    // Leaves first, the channel last: deleting a channel does not take its children along.
+    for (const id of unlisted.sort((a, b) => b.length - a.length)) {
+      this.adapter.log.debug(`Removing command ${id} — LIST CMD no longer lists it`);
+      await this.adapter.delObjectAsync(id);
+      this.storedIds.delete(id);
+      this.createdIds.delete(id);
+      this.nutNames.delete(id);
     }
   }
 
@@ -1902,7 +2023,9 @@ export class StateManager {
     this.storedBounds.clear();
     this.storedTexts.clear();
     this.storedIcons.clear();
+    this.storedIds.clear();
     for (const [fullId, obj] of Object.entries(adapterObjects)) {
+      this.storedIds.add(local(fullId));
       if (obj.type === "device" && typeof obj.common?.icon === "string") {
         this.storedIcons.set(local(fullId), obj.common.icon);
       }
@@ -2083,6 +2206,11 @@ export class StateManager {
     this.fallbackNames.delete(prefix);
     this.descriptionLabels.delete(prefix);
     this.storedIcons.delete(prefix);
+    for (const id of [...this.storedIds]) {
+      if (under(id)) {
+        this.storedIds.delete(id);
+      }
+    }
     this.commandNames.delete(prefix);
   }
 

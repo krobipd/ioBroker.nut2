@@ -928,10 +928,14 @@ describe("B3 a word in a measurement is an empty number, not a lost or stale rea
     },
   );
 
-  it("an empty value with a unit is an empty number", () => {
-    const r = detectType("input.voltage", "", false);
-    expect(r.type).toBe("number");
-    expect(r.parsedValue).toBeNull();
+  it("an empty value with a unit is an empty number — no reading, not garbage", () => {
+    for (const raw of ["", "  "]) {
+      const r = detectType("input.voltage", raw, false);
+      expect(r.type).toBe("number");
+      expect(r.parsedValue).toBeNull();
+      expect(r.stateWord).toBe(true);
+      expect(isNumericStateWord(raw)).toBe(true);
+    }
   });
 
   it("a driver-private variable outside the catalog keeps its text", () => {

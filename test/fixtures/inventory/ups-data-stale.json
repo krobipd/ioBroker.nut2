@@ -1,0 +1,11 @@
+{
+  "name": "ups-data-stale",
+  "description": "Garage UPS",
+  "source": "the driver lost its device: upsd answers DATA-STALE",
+  "stale": true,
+  "vars": {},
+  "rw": {},
+  "enum": {},
+  "range": {},
+  "cmd": []
+}

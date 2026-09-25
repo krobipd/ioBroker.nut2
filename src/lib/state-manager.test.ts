@@ -1341,6 +1341,46 @@ describe("StateManager", () => {
       expect(common?.name).toHaveProperty("en");
       expect(common?.name).toHaveProperty("de");
     });
+
+    it("a UPS without any command gets no commands channel and no execute field", async () => {
+      const { adapter, objects } = createMockAdapter();
+      const sm = new StateManager(adapter);
+      await sm.createCommandButtons("ups0", []);
+      expect([...objects.keys()].filter(id => id.startsWith("ups0.commands"))).toEqual([]);
+      expect(sm.commandsOf("ups0")?.size).toBe(0);
+    });
+
+    it("removes the buttons of commands LIST CMD no longer lists, keeps the listed ones", async () => {
+      const { adapter, objects, deletedIds } = createMockAdapter();
+      const sm = new StateManager(adapter);
+      await sm.createCommandButtons("ups0", [{ name: "beeper.mute" }, { name: "load.off" }]);
+      // Next discover: the driver dropped load.off.
+      await sm.pruneObjectTree(new Set(["ups0"]));
+      await sm.createCommandButtons("ups0", [{ name: "beeper.mute" }]);
+      expect(objects.has("ups0.commands.load-off")).toBe(false);
+      expect(objects.has("ups0.commands.beeper-mute")).toBe(true);
+      expect(objects.has("ups0.commands.execute")).toBe(true);
+      expect(deletedIds).toEqual(["ups0.commands.load-off"]);
+    });
+
+    it("a UPS that lost every command loses the whole commands channel", async () => {
+      const { adapter, objects } = createMockAdapter();
+      const sm = new StateManager(adapter);
+      await sm.createCommandButtons("ups0", [{ name: "beeper.mute" }]);
+      await sm.pruneObjectTree(new Set(["ups0"]));
+      await sm.createCommandButtons("ups0", []);
+      expect([...objects.keys()].filter(id => id.startsWith("ups0.commands"))).toEqual([]);
+    });
+
+    it("an unchanged command list deletes nothing", async () => {
+      const { adapter, deletedIds } = createMockAdapter();
+      const sm = new StateManager(adapter);
+      const cmds = [{ name: "beeper.mute" }, { name: "outlet.1.load.off" }];
+      await sm.createCommandButtons("ups0", cmds);
+      await sm.pruneObjectTree(new Set(["ups0"]));
+      await sm.createCommandButtons("ups0", cmds);
+      expect(deletedIds).toEqual([]);
+    });
   });
 
   // -----------------------------------------------------------------------

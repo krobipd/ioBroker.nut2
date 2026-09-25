@@ -1,6 +1,6 @@
 {
   "name": "ups-outlets-ambient",
-  "description": "UPS with switchable outlets, outlet groups and ambient sensors",
+  "description": "Rack UPS with sensors",
   "vars": {
     "device.type": "ups",
     "device.mfr": "Eaton",
@@ -46,16 +46,36 @@
     "ambient.2.humidity.alarm": "enabled",
     "ambient.2.present": "yes",
     "ambient.2.contacts.1.status": "closed",
-    "ambient.2.contacts.2.status": "closed"
+    "ambient.2.contacts.2.status": "closed",
+    "ambient.1.temperature.high.warning": "35.0"
   },
   "rw": {
     "outlet.1.status": "on",
-    "ambient.1.humidity.alarm": "enabled"
+    "ambient.1.humidity.alarm": "enabled",
+    "ambient.1.temperature.high.warning": "35.0"
   },
   "enum": {
     "outlet.1.status": ["on", "off"],
     "ambient.1.humidity.alarm": ["enabled", "disabled"]
   },
-  "range": {},
-  "cmd": ["outlet.1.load.off", "outlet.1.load.on", "outlet.1.load.cycle", "beeper.mute"]
+  "range": {
+    "ambient.1.temperature.high.warning": [["0", "80"]]
+  },
+  "cmd": [
+    "outlet.1.load.off",
+    "outlet.1.load.on",
+    "outlet.1.load.cycle",
+    "outlet.1.load.off.delay",
+    "outlet.1.load.on.delay",
+    "outlet.1.load.cycle.delay",
+    "outlet.1.shutdown.return",
+    "outlet.group.1.load.off",
+    "outlet.group.1.load.on",
+    "outlet.group.1.load.cycle",
+    "outlet.group.1.load.off.delay",
+    "outlet.group.1.load.on.delay",
+    "outlet.group.1.load.cycle.delay",
+    "beeper.mute"
+  ],
+  "source": "nut-names.txt outlet, outlet.group and ambient collections; group commands per the snmp-ups mibs"
 }

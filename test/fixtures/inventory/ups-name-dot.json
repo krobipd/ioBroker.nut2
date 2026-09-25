@@ -1,0 +1,16 @@
+{
+  "name": "u.p",
+  "id": "u_p",
+  "description": "Lab UPS",
+  "source": "UPS name with a dot",
+  "vars": {
+    "device.type": "ups",
+    "device.mfr": "Eaton",
+    "device.model": "Ellipse ECO 650",
+    "ups.status": "OL"
+  },
+  "rw": {},
+  "enum": {},
+  "range": {},
+  "cmd": []
+}

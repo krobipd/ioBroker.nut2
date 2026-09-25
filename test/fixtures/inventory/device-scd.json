@@ -1,19 +1,24 @@
 {
   "name": "device-scd",
-  "description": "Solar controller device (device.type = scd)",
+  "description": "Solar charge controller",
+  "source": "drivers/ivtscd.c 2.8.5",
   "vars": {
     "device.type": "scd",
-    "device.mfr": "Generic",
-    "device.model": "Solar controller device",
-    "device.serial": "SN-SCD-001",
+    "device.mfr": "IVT",
+    "device.model": "Solar Controller Device",
+    "driver.name": "ivtscd",
+    "driver.version": "2.8.5",
     "ups.status": "OL",
-    "input.voltage": "230.0",
-    "output.voltage": "230.0",
-    "outlet.count": "2",
-    "device.description": "Solar controller device"
+    "battery.voltage": "13.21",
+    "battery.voltage.minimum": "12.05",
+    "battery.voltage.maximum": "14.40",
+    "battery.current": "2.1",
+    "battery.current.minimum": "0.0",
+    "battery.current.maximum": "8.3",
+    "battery.temperature": "24"
   },
   "rw": {},
   "enum": {},
   "range": {},
-  "cmd": ["beeper.disable"]
+  "cmd": []
 }

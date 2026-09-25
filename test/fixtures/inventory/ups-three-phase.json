@@ -1,6 +1,7 @@
 {
   "name": "ups-three-phase",
-  "description": "Three-phase UPS (per-phase and phase-to-phase names)",
+  "description": "Data centre UPS",
+  "source": "nut-names.txt 2.8.5 DOMAIN x CONTEXT x SPEC (three-phase additions)",
   "vars": {
     "device.type": "ups",
     "device.mfr": "Eaton",
@@ -8,39 +9,71 @@
     "ups.status": "OL",
     "input.phases": "3",
     "output.phases": "3",
+    "input.frequency": "50.0",
+    "input.N.current": "0.3",
+    "output.voltage.nominal": "230",
     "input.L1.voltage": "230.1",
     "input.L1.current": "2.4",
     "input.L1.realpower": "540",
     "input.L1.voltage.status": "good",
+    "input.L1.current.high.warning": "28.8",
     "output.L1.voltage": "229.8",
     "output.L1.power": "800",
+    "output.L1.power.percent": "35",
+    "input.L1-N.voltage": "230.1",
+    "output.L1-N.voltage": "229.8",
+    "input.bypass.L1-N.voltage": "230.4",
     "input.L2.voltage": "230.1",
     "input.L2.current": "2.4",
     "input.L2.realpower": "540",
     "input.L2.voltage.status": "good",
+    "input.L2.current.high.warning": "28.8",
     "output.L2.voltage": "229.8",
     "output.L2.power": "800",
+    "output.L2.power.percent": "35",
+    "input.L2-N.voltage": "230.1",
+    "output.L2-N.voltage": "229.8",
+    "input.bypass.L2-N.voltage": "230.4",
     "input.L3.voltage": "230.1",
     "input.L3.current": "2.4",
     "input.L3.realpower": "540",
     "input.L3.voltage.status": "good",
+    "input.L3.current.high.warning": "28.8",
     "output.L3.voltage": "229.8",
     "output.L3.power": "800",
+    "output.L3.power.percent": "35",
+    "input.L3-N.voltage": "230.1",
+    "output.L3-N.voltage": "229.8",
+    "input.bypass.L3-N.voltage": "230.4",
     "input.L1-L2.voltage": "400.2",
     "output.L1-L2.voltage": "399.7",
     "input.L2-L3.voltage": "400.2",
     "output.L2-L3.voltage": "399.7",
     "input.L3-L1.voltage": "400.2",
     "output.L3-L1.voltage": "399.7",
-    "input.N.current": "0.3",
-    "input.frequency": "50.0"
+    "input.bypass.frequency": "50.0",
+    "input.bypass.phases": "3",
+    "input.servicebypass.voltage": "230.6",
+    "input.servicebypass.frequency": "50.0",
+    "output.bypass.voltage": "230.2",
+    "output.bypass.frequency": "50.0",
+    "output.inverter.voltage": "229.9",
+    "output.inverter.frequency": "50.0",
+    "output.servicebypass.voltage": "0.0"
   },
   "rw": {
-    "input.L1.voltage": "230.1"
+    "input.L1.voltage": "230.1",
+    "input.L1.current.high.warning": "28.8",
+    "output.voltage.nominal": "230"
   },
-  "enum": {},
   "range": {
-    "input.L1.voltage": [["200", "250"]]
+    "input.L1.voltage": [["200", "250"]],
+    "input.L1.current.high.warning": [["0", "32"]],
+    "output.voltage.nominal": [
+      ["200", "208"],
+      ["220", "240"]
+    ]
   },
-  "cmd": ["load.off", "bypass.start"]
+  "cmd": ["load.off", "bypass.start"],
+  "enum": {}
 }

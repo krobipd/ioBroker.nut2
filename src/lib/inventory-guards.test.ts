@@ -38,10 +38,11 @@ describe("inventory freshness", () => {
       .sort()) {
       const fixture = JSON.parse(readFileSync(join(dir, file), "utf8")) as {
         name: string;
+        id?: string;
         vars: Record<string, string>;
       };
       for (const nutVar of Object.keys(fixture.vars)) {
-        const id = `nut2.0.${nutVarToStateId(fixture.name, nutVar)}`;
+        const id = `nut2.0.${nutVarToStateId(fixture.id ?? fixture.name, nutVar)}`;
         if (!(id in inventory)) {
           missing.push(`${file}: ${nutVar} -> ${id}`);
         }
@@ -89,13 +90,14 @@ describe("inventory freshness", () => {
     for (const file of readdirSync(dir).filter(f => f.endsWith(".json"))) {
       const fixture = JSON.parse(readFileSync(join(dir, file), "utf8")) as {
         name: string;
+        id?: string;
         vars: Record<string, string>;
       };
       const type = fixture.vars["device.type"];
       if (type === undefined || ![...files.values()].includes(`${type}.svg`)) {
         continue;
       }
-      const icon = inventory[`nut2.0.${fixture.name}`]?.common.icon;
+      const icon = inventory[`nut2.0.${fixture.id ?? fixture.name}`]?.common.icon;
       const decoded = typeof icon === "string" ? Buffer.from(icon.slice(prefix.length), "base64").toString("utf8") : "";
       if (files.get(decoded) !== `${type}.svg`) {
         missing.push(`${fixture.name} (${type})`);

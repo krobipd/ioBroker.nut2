@@ -11,6 +11,7 @@
   "*.driver.flag-weird": "A driver-private flag: the name is the driver's own, and the adapter cannot know what a private flag means",
   "*.driver.name": "The NUT driver's program name, e.g. usbhid-ups — a sentence could only repeat it",
   "*.driver.version-usb": "The name already says which of the driver's versions this is: the USB library it was built against",
+  "*.experimental.output-energy": "apc_modbus register 145 as an experimental name: NUT documents neither its unit nor its meaning, so any explanation would be invented",
   "*.ups.firmware": "The UPS firmware version as an opaque string — name and value are the whole statement",
   "*.ups.firmware-aux": "NUT specifies nothing beyond 'auxiliary device firmware'; the name is as specific as the protocol gets",
   "*.ups.mfr": "Legacy twin of the device manufacturer that NUT will drop — plain identification, the label is the whole content",

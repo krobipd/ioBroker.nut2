@@ -248,7 +248,7 @@ export function detectType(varName: string, rawValue: string, isWritable: boolea
       write: isWritable,
       parsedValue: null,
       expectedNumeric: true,
-      stateWord: NUMERIC_STATE_WORDS.has(rawValue.toLowerCase()),
+      stateWord: isNumericStateWord(rawValue),
     };
   }
   // Everything else is an opaque string.
@@ -263,13 +263,16 @@ export function detectType(varName: string, rawValue: string, isWritable: boolea
 }
 
 /**
- * Whether a raw value is one of the words drivers put into a numeric field for "no reading right
- * now" (see NUMERIC_STATE_WORDS).
+ * Whether a raw value says "no reading right now" in a numeric field: one of the words drivers put
+ * there (see NUMERIC_STATE_WORDS) — or nothing at all. drivers publish empty strings as values
+ * (apc_modbus `outlet.group.2.name`, snmp-ups `ups.status` of a PDU); in a measurement that is an
+ * absent reading, not garbage worth a warning.
  *
  * @param rawValue Raw string value from LIST VAR
  */
 export function isNumericStateWord(rawValue: string): boolean {
-  return NUMERIC_STATE_WORDS.has(rawValue.trim().toLowerCase());
+  const word = rawValue.trim().toLowerCase();
+  return word === "" || NUMERIC_STATE_WORDS.has(word);
 }
 
 /**
@@ -372,6 +375,7 @@ function detectUnit(varName: string): string | undefined {
   if (
     varName.endsWith(".load") ||
     varName.endsWith(".load.high") ||
+    varName.endsWith(".load.energysave") ||
     varName.endsWith(".efficiency") ||
     varName.endsWith(".percent")
   ) {

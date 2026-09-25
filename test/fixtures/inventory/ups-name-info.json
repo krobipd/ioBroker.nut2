@@ -1,0 +1,16 @@
+{
+  "name": "info",
+  "id": "info-2",
+  "description": "Reception UPS",
+  "source": "a UPS named like the adapter's info channel",
+  "vars": {
+    "device.type": "ups",
+    "device.mfr": "Eaton",
+    "device.model": "Ellipse ECO 650",
+    "ups.status": "OL"
+  },
+  "rw": {},
+  "enum": {},
+  "range": {},
+  "cmd": []
+}
