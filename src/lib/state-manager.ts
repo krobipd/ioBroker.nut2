@@ -2550,3 +2550,6 @@ export class StateManager {
     }
   }
 }
+
+/** The command catalog, read-only — for the catalog tests. */
+export const CATALOG_COMMANDS: Readonly<Record<string, I18nKey>> = COMMAND_I18N;

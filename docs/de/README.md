@@ -108,7 +108,8 @@ Zwei Schalter im Reiter **Erweitert** öffnen die Schreibrichtung, beide sind be
 
 - **Befehle aktivieren** legt je Befehl, den die USV anbietet, eine Taste an (Signalton, Selbsttest, Last abschalten …).
   Der Kanal `commands` erscheint erst, wenn das an ist **und** Zugangsdaten hinterlegt sind — `upsd` prüft
-  Befehlsrechte gegen einen benannten Benutzer.
+  Befehlsrechte gegen einen benannten Benutzer. Sein Text-Datenpunkt `commands.execute` führt einen Befehl mit Wert
+  aus, etwa `load.off.delay 120`.
 - **SET VAR aktivieren** macht die USV-Variablen, die der Server als schreibbar meldet, auch in ioBroker schreibbar.
 
 Beides braucht die passenden Rechte in der `upsd.users` (Schritt 3). Mit den Last-Befehlen vorsichtig umgehen:

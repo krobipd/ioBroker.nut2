@@ -17,7 +17,13 @@ vi.mock("@iobroker/adapter-core", () => ({
   },
 }));
 
-import { commandCatalogEntry, nutVarToStateId, varDescription, varTranslation } from "./state-manager";
+import {
+  CATALOG_COMMANDS,
+  commandCatalogEntry,
+  nutVarToStateId,
+  varDescription,
+  varTranslation,
+} from "./state-manager";
 import { detectType } from "./type-detector";
 
 const ROOT = join(__dirname, "..", "..");
@@ -128,6 +134,33 @@ describe("catalog completeness against the NUT 2.8.5 registries (E6)", () => {
   it("every command has a catalog entry (label + explanation)", () => {
     const missing = COMMANDS.filter(c => commandCatalogEntry(c) === undefined);
     expect(missing, "commands without a catalog entry").toEqual([]);
+  });
+
+  it("⚠ marks exactly the commands that can cut power, leave the load unprotected or stop the driver", () => {
+    // One rule for all eleven languages and every command: switching something ON is never marked,
+    // switching it OFF (also "off and back on", "shut down") always is — whole UPS, outlet or group.
+    const en = JSON.parse(readFileSync(join(ROOT, "admin", "i18n", "en.json"), "utf8")) as Record<string, string>;
+    const risky = (cmd: string): boolean =>
+      /(^|\.)load\.(off|cycle)(\.delay)?$/.test(cmd) ||
+      /(^|\.)shutdown\.(default|return|stayoff|reboot|reboot\.graceful)$/.test(cmd) ||
+      /(^|\.)bypass(\.ecomode)?\.start$/.test(cmd) ||
+      ["input.off", "driver.exit", "driver.killpower", "driver.reload-or-exit", "experimental.ve-direct.set"].includes(
+        cmd,
+      );
+    const wrong: string[] = [];
+    const names = [...new Set([...COMMANDS, ...Object.keys(CATALOG_COMMANDS)])];
+    for (const cmd of names) {
+      const entry = commandCatalogEntry(cmd);
+      if (!entry) {
+        continue;
+      }
+      const descKey = `desc${entry.key[0].toUpperCase()}${entry.key.slice(1)}`;
+      const marked = (en[descKey] ?? "").startsWith("⚠");
+      if (marked !== risky(cmd)) {
+        wrong.push(`${cmd}: ${marked ? "marked" : "not marked"}`);
+      }
+    }
+    expect(wrong).toEqual([]);
   });
 
   it("every variable carries the unit its catalog description states", () => {

@@ -108,7 +108,8 @@ Two switches on the **Advanced** tab open the write direction, and both are off 
 
 - **Enable commands** creates a button state per instant command the UPS offers (beeper, self-test, load off …).
   The `commands` channel only appears once this is on **and** credentials are configured — `upsd` checks command
-  rights against a named user.
+  rights against a named user. Its text data point `commands.execute` runs a command that takes a value, such as
+  `load.off.delay 120`.
 - **Enable SET VAR** makes the UPS variables that the server reports as writable writable in ioBroker too.
 
 Both need the matching rights in `upsd.users` (step 3). Handle the load commands with care: `load.off` cuts the power

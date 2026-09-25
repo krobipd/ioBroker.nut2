@@ -17654,17 +17654,17 @@
         "zh-cn": "打开负载"
       },
       "desc": {
-        "de": "⚠ Die angeschlossenen Geräte wieder mit Strom versorgen",
-        "en": "⚠ Power the connected devices back on",
-        "es": "⚠ Volver a dar corriente a los equipos",
-        "fr": "⚠ Réalimenter les appareils raccordés",
-        "it": "⚠ Rialimenta i dispositivi collegati",
-        "nl": "⚠ De aangesloten apparaten weer van stroom voorzien",
-        "pl": "⚠ Ponownie zasil podłączone urządzenia",
-        "pt": "⚠ Voltar a alimentar os equipamentos ligados",
-        "ru": "⚠ Снова подать питание на подключённые устройства",
-        "uk": "⚠ Знову подати живлення на під'єднані пристрої",
-        "zh-cn": "⚠ 重新为所接设备供电"
+        "de": "Die angeschlossenen Geräte wieder mit Strom versorgen",
+        "en": "Power the connected devices back on",
+        "es": "Volver a dar corriente a los equipos",
+        "fr": "Réalimenter les appareils raccordés",
+        "it": "Rialimenta i dispositivi collegati",
+        "nl": "De aangesloten apparaten weer van stroom voorzien",
+        "pl": "Ponownie zasil podłączone urządzenia",
+        "pt": "Voltar a alimentar os equipamentos ligados",
+        "ru": "Снова подать питание на подключённые устройства",
+        "uk": "Знову подати живлення на під'єднані пристрої",
+        "zh-cn": "重新为所接设备供电"
       },
       "def": false
     },
@@ -17692,17 +17692,17 @@
         "zh-cn": "延时打开负载"
       },
       "desc": {
-        "de": "⚠ Die Geräte nach der eingestellten Startverzögerung wieder einschalten",
-        "en": "⚠ Power the devices back on after the configured start delay",
-        "es": "⚠ Encender los equipos tras el retardo de arranque configurado",
-        "fr": "⚠ Rallumer les appareils après le délai de démarrage réglé",
-        "it": "⚠ Riaccendi i dispositivi dopo il ritardo di avvio impostato",
-        "nl": "⚠ De apparaten na de ingestelde startvertraging weer inschakelen",
-        "pl": "⚠ Załącz urządzenia po ustawionym opóźnieniu startu",
-        "pt": "⚠ Religar os equipamentos após o atraso de arranque definido",
-        "ru": "⚠ Включить устройства после заданной задержки старта",
-        "uk": "⚠ Увімкнути пристрої після заданої затримки старту",
-        "zh-cn": "⚠ 按设定的启动延时重新为设备供电"
+        "de": "Die Geräte nach der eingestellten Startverzögerung wieder einschalten",
+        "en": "Power the devices back on after the configured start delay",
+        "es": "Encender los equipos tras el retardo de arranque configurado",
+        "fr": "Rallumer les appareils après le délai de démarrage réglé",
+        "it": "Riaccendi i dispositivi dopo il ritardo di avvio impostato",
+        "nl": "De apparaten na de ingestelde startvertraging weer inschakelen",
+        "pl": "Załącz urządzenia po ustawionym opóźnieniu startu",
+        "pt": "Religar os equipamentos após o atraso de arranque definido",
+        "ru": "Включить устройства после заданной задержки старта",
+        "uk": "Увімкнути пристрої після заданої затримки старту",
+        "zh-cn": "按设定的启动延时重新为设备供电"
       },
       "def": false
     },
@@ -27934,17 +27934,17 @@
         "zh-cn": "打开负载"
       },
       "desc": {
-        "de": "⚠ Die angeschlossenen Geräte wieder mit Strom versorgen",
-        "en": "⚠ Power the connected devices back on",
-        "es": "⚠ Volver a dar corriente a los equipos",
-        "fr": "⚠ Réalimenter les appareils raccordés",
-        "it": "⚠ Rialimenta i dispositivi collegati",
-        "nl": "⚠ De aangesloten apparaten weer van stroom voorzien",
-        "pl": "⚠ Ponownie zasil podłączone urządzenia",
-        "pt": "⚠ Voltar a alimentar os equipamentos ligados",
-        "ru": "⚠ Снова подать питание на подключённые устройства",
-        "uk": "⚠ Знову подати живлення на під'єднані пристрої",
-        "zh-cn": "⚠ 重新为所接设备供电"
+        "de": "Die angeschlossenen Geräte wieder mit Strom versorgen",
+        "en": "Power the connected devices back on",
+        "es": "Volver a dar corriente a los equipos",
+        "fr": "Réalimenter les appareils raccordés",
+        "it": "Rialimenta i dispositivi collegati",
+        "nl": "De aangesloten apparaten weer van stroom voorzien",
+        "pl": "Ponownie zasil podłączone urządzenia",
+        "pt": "Voltar a alimentar os equipamentos ligados",
+        "ru": "Снова подать питание на подключённые устройства",
+        "uk": "Знову подати живлення на під'єднані пристрої",
+        "zh-cn": "重新为所接设备供电"
       },
       "def": false
     },
@@ -36419,17 +36419,17 @@
         "zh-cn": "打开负载"
       },
       "desc": {
-        "de": "⚠ Die angeschlossenen Geräte wieder mit Strom versorgen",
-        "en": "⚠ Power the connected devices back on",
-        "es": "⚠ Volver a dar corriente a los equipos",
-        "fr": "⚠ Réalimenter les appareils raccordés",
-        "it": "⚠ Rialimenta i dispositivi collegati",
-        "nl": "⚠ De aangesloten apparaten weer van stroom voorzien",
-        "pl": "⚠ Ponownie zasil podłączone urządzenia",
-        "pt": "⚠ Voltar a alimentar os equipamentos ligados",
-        "ru": "⚠ Снова подать питание на подключённые устройства",
-        "uk": "⚠ Знову подати живлення на під'єднані пристрої",
-        "zh-cn": "⚠ 重新为所接设备供电"
+        "de": "Die angeschlossenen Geräte wieder mit Strom versorgen",
+        "en": "Power the connected devices back on",
+        "es": "Volver a dar corriente a los equipos",
+        "fr": "Réalimenter les appareils raccordés",
+        "it": "Rialimenta i dispositivi collegati",
+        "nl": "De aangesloten apparaten weer van stroom voorzien",
+        "pl": "Ponownie zasil podłączone urządzenia",
+        "pt": "Voltar a alimentar os equipamentos ligados",
+        "ru": "Снова подать питание на подключённые устройства",
+        "uk": "Знову подати живлення на під'єднані пристрої",
+        "zh-cn": "重新为所接设备供电"
       },
       "def": false
     },
@@ -36457,17 +36457,17 @@
         "zh-cn": "延时打开负载"
       },
       "desc": {
-        "de": "⚠ Die Geräte nach der eingestellten Startverzögerung wieder einschalten",
-        "en": "⚠ Power the devices back on after the configured start delay",
-        "es": "⚠ Encender los equipos tras el retardo de arranque configurado",
-        "fr": "⚠ Rallumer les appareils après le délai de démarrage réglé",
-        "it": "⚠ Riaccendi i dispositivi dopo il ritardo di avvio impostato",
-        "nl": "⚠ De apparaten na de ingestelde startvertraging weer inschakelen",
-        "pl": "⚠ Załącz urządzenia po ustawionym opóźnieniu startu",
-        "pt": "⚠ Religar os equipamentos após o atraso de arranque definido",
-        "ru": "⚠ Включить устройства после заданной задержки старта",
-        "uk": "⚠ Увімкнути пристрої після заданої затримки старту",
-        "zh-cn": "⚠ 按设定的启动延时重新为设备供电"
+        "de": "Die Geräte nach der eingestellten Startverzögerung wieder einschalten",
+        "en": "Power the devices back on after the configured start delay",
+        "es": "Encender los equipos tras el retardo de arranque configurado",
+        "fr": "Rallumer les appareils après le délai de démarrage réglé",
+        "it": "Riaccendi i dispositivi dopo il ritardo di avvio impostato",
+        "nl": "De apparaten na de ingestelde startvertraging weer inschakelen",
+        "pl": "Załącz urządzenia po ustawionym opóźnieniu startu",
+        "pt": "Religar os equipamentos após o atraso de arranque definido",
+        "ru": "Включить устройства после заданной задержки старта",
+        "uk": "Увімкнути пристрої після заданої затримки старту",
+        "zh-cn": "按设定的启动延时重新为设备供电"
       },
       "def": false
     },

@@ -27,25 +27,31 @@ Do not lower the poll interval — NUT has no server push, so a faster poll only
 knows about events the moment they happen is `upsmon`, NUT's own monitoring client. It runs a program of your choice
 via `NOTIFYCMD` and passes the event type and UPS name to it.
 
-Point that program at the writable state `nut2.0.notify`:
+Point that program at the writable state `nut2.0.notify`. Save a small helper script on the NUT server — for example
+as `/etc/nut/iobroker-notify.sh` — and make it executable (`chmod +x`); `curl` has to be installed there:
 
-```bash
+```sh
 #!/bin/sh
-# /etc/nut/notify.sh — called by upsmon
-curl -s -X PATCH "http://IOBROKER:8087/v1/state/nut2.0.notify" \
-     -H "Content-Type: application/json" \
-     -d "{\"val\": \"$NOTIFYTYPE $UPSNAME\", \"ack\": false}"
+# Called by upsmon: the event is in $NOTIFYTYPE, the UPS in $UPSNAME.
+curl -fsS "http://IOBROKER:8093/v1/state/nut2.0.notify?value=${NOTIFYTYPE}%20${UPSNAME}" > /dev/null
 ```
 
 And in `upsmon.conf`:
 
 ```
-NOTIFYCMD /etc/nut/notify.sh
-NOTIFYFLAG ONBATT   SYSLOG+EXEC
+NOTIFYCMD /etc/nut/iobroker-notify.sh
 NOTIFYFLAG ONLINE   SYSLOG+EXEC
+NOTIFYFLAG ONBATT   SYSLOG+EXEC
 NOTIFYFLAG LOWBATT  SYSLOG+EXEC
+NOTIFYFLAG FSD      SYSLOG+EXEC
 NOTIFYFLAG SHUTDOWN SYSLOG+EXEC
+NOTIFYFLAG REPLBATT SYSLOG+EXEC
 ```
+
+The URL is served by the [rest-api](https://github.com/ioBroker/ioBroker.rest-api) adapter (port 8093). A script works
+with every NUT version: from the release after NUT 2.8.5 on, `upsmon` starts `NOTIFYCMD` without a shell, so variables
+written into `upsmon.conf` itself would no longer be expanded. With the older `simple-api` adapter the URL is
+`http://IOBROKER:8087/set/nut2.0.notify?value=…` (8087 when it runs on its own, 8082 inside the web adapter).
 
 Any write to `nut2.0.notify` triggers an immediate poll of all UPS devices; an empty value is simply a manual refresh.
 When the UPS name matches a discovered device, the event is also written to that device's `info.notify`, so a script
@@ -60,7 +66,20 @@ username and password there is nothing to check them against and no buttons are 
 adapter says so in the log instead of staying silent.
 
 If credentials are configured and the channel is still missing, your UPS driver reports no instant commands
-(`upscmd -l ups0` on the server lists them).
+(`upscmd -l ups0` on the server lists them) — a UPS without any command gets no `commands` channel at all. Buttons of
+commands the driver no longer lists are removed.
+
+## How do I send a command that needs a value?
+
+Write the command and its value into `commands.execute`, exactly as `upscmd` takes them: `load.off.delay 120` or
+`beeper.enable`. The same rules apply as for the buttons — **Enable commands** on, credentials configured, and the
+command has to be one the UPS offers. The value is a single word (no spaces, no `#`, `=`, quotes or backslashes).
+
+## The log says a command was sent but "the driver has not confirmed it (yet)".
+
+When the NUT server tracks commands (NUT 2.8.0 and later), the adapter asks it whether the driver carried a command or a
+new setting out. This line means the server accepted it, but the driver did not report back within the command timeout
+— check the UPS itself. A driver that reports a failure produces an error line instead.
 
 ## I renamed a data point in the object tree and the name came back.
 

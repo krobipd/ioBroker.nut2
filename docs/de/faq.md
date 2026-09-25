@@ -29,25 +29,32 @@ Nicht das Abfrageintervall senken — NUT hat keinen Server-Push, ein schnellere
 die Ereignisse im Moment des Geschehens kennt, ist `upsmon`, NUTs eigener Überwachungsclient. Er führt über `NOTIFYCMD`
 ein Programm Ihrer Wahl aus und übergibt ihm Ereignistyp und USV-Namen.
 
-Dieses Programm auf den beschreibbaren Datenpunkt `nut2.0.notify` zeigen lassen:
+Dieses Programm auf den beschreibbaren Datenpunkt `nut2.0.notify` zeigen lassen. Dazu auf dem NUT-Server ein kleines
+Hilfsskript ablegen — etwa als `/etc/nut/iobroker-notify.sh` — und ausführbar machen (`chmod +x`); `curl` muss dort
+installiert sein:
 
-```bash
+```sh
 #!/bin/sh
-# /etc/nut/notify.sh — wird von upsmon aufgerufen
-curl -s -X PATCH "http://IOBROKER:8087/v1/state/nut2.0.notify" \
-     -H "Content-Type: application/json" \
-     -d "{\"val\": \"$NOTIFYTYPE $UPSNAME\", \"ack\": false}"
+# Called by upsmon: the event is in $NOTIFYTYPE, the UPS in $UPSNAME.
+curl -fsS "http://IOBROKER:8093/v1/state/nut2.0.notify?value=${NOTIFYTYPE}%20${UPSNAME}" > /dev/null
 ```
 
 Und in der `upsmon.conf`:
 
 ```
-NOTIFYCMD /etc/nut/notify.sh
-NOTIFYFLAG ONBATT   SYSLOG+EXEC
+NOTIFYCMD /etc/nut/iobroker-notify.sh
 NOTIFYFLAG ONLINE   SYSLOG+EXEC
+NOTIFYFLAG ONBATT   SYSLOG+EXEC
 NOTIFYFLAG LOWBATT  SYSLOG+EXEC
+NOTIFYFLAG FSD      SYSLOG+EXEC
 NOTIFYFLAG SHUTDOWN SYSLOG+EXEC
+NOTIFYFLAG REPLBATT SYSLOG+EXEC
 ```
+
+Die Adresse bedient der Adapter [rest-api](https://github.com/ioBroker/ioBroker.rest-api) (Port 8093). Ein Skript
+funktioniert mit jeder NUT-Version: Ab der Version nach NUT 2.8.5 startet `upsmon` den `NOTIFYCMD` ohne Shell, Variablen
+direkt in der `upsmon.conf` würden dann nicht mehr ersetzt. Mit dem älteren Adapter `simple-api` lautet die Adresse
+`http://IOBROKER:8087/set/nut2.0.notify?value=…` (8087, wenn er eigenständig läuft, 8082 im web-Adapter).
 
 Jeder Schreibvorgang auf `nut2.0.notify` löst eine sofortige Abfrage aller USVen aus; ein leerer Wert ist schlicht eine
 Aktualisierung von Hand. Passt der USV-Name zu einem erkannten Gerät, wird das Ereignis zusätzlich in dessen
@@ -63,7 +70,22 @@ und Passwort gibt es nichts zu prüfen, und es werden keine Tasten angelegt. Sei
 im Log, statt zu schweigen.
 
 Sind Zugangsdaten hinterlegt und der Kanal fehlt trotzdem, meldet Ihr USV-Treiber keine Befehle (`upscmd -l ups0` am
-Server listet sie auf).
+Server listet sie auf) — eine USV ganz ohne Befehle bekommt keinen Kanal `commands`. Tasten für Befehle, die der Treiber
+nicht mehr listet, werden entfernt.
+
+## Wie sende ich einen Befehl, der einen Wert braucht?
+
+Befehl und Wert in `commands.execute` schreiben, genau so, wie `upscmd` sie nimmt: `load.off.delay 120` oder
+`beeper.enable`. Es gelten dieselben Regeln wie für die Tasten — **Befehle aktivieren** an, Zugangsdaten hinterlegt, und
+die USV muss den Befehl anbieten. Der Wert ist ein einzelnes Wort (keine Leerzeichen, kein `#`, `=`, keine
+Anführungszeichen oder Backslashes).
+
+## Im Log steht bei einem Befehl „the driver has not confirmed it (yet)“.
+
+Verfolgt der NUT-Server Befehle (ab NUT 2.8.0), fragt der Adapter nach, ob der Treiber einen Befehl oder eine neue
+Einstellung ausgeführt hat. Diese Zeile heißt: Der Server hat ihn angenommen, der Treiber hat sich innerhalb der
+Befehls-Zeitgrenze aber nicht zurückgemeldet — dann an der USV selbst nachsehen. Meldet der Treiber einen Fehler, gibt
+es stattdessen eine Fehlerzeile.
 
 ## Ich habe einen Datenpunkt im Objektbaum umbenannt, und der Name kam zurück.
 

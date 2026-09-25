@@ -8,19 +8,23 @@
 
 Monitors uninterruptible power supplies via [Network UPS Tools (NUT)](https://networkupstools.org/). All UPS devices connected to a NUT server are automatically discovered and polled.
 
+NUT support in ioBroker goes back to [Apollon77](https://github.com/Apollon77)'s `iobroker.nut` adapter (2016); this adapter is an independent rewrite and shares no code with it.
+
 ---
 
 ## Features
 
 - Automatic discovery of all UPS devices on a NUT server via `LIST UPS` — also while running: a UPS added to or removed from the server shows up (or disappears) at the next poll
 - Dynamic state creation from `LIST VAR` — whatever your UPS reports appears as ioBroker states
-- Proper data types: numeric values as numbers (not strings), with units (V, Hz, A, Ah, %, W, VA, s, °C)
+- Proper data types: numeric values as numbers (not strings), with units (V, Hz, A, Ah, %, W, VA, s, min, °C, °)
 - Parsed `ups.status` flags as individual booleans (online, onBattery, lowBattery, charging, ...) plus computed severity (0–4)
+- Every device shows a pictogram for its NUT device type (UPS, PDU, solar charge controller, power supply, transfer switch) in the object tree
 - Every data point comes with a short explanation, and status texts, severity levels and selection lists appear in your ioBroker language (11 languages)
-- Instant commands (INSTCMD) via button states — beeper control, load management, self-test
+- Instant commands (INSTCMD) via button states — beeper control, load management, self-test — plus one text data point for commands that take a value, such as a delay
+- When the NUT server tracks commands, the adapter reports whether the driver really carried out a command or a new setting
 - Writable variables (SET VAR) — change UPS settings directly from ioBroker
 - Instant updates on UPS events — a writable `notify` trigger state lets upsmon push ONBATT/LOWBATT/SHUTDOWN the moment they happen
-- Persistent TCP connection with automatic reconnect and exponential backoff
+- Persistent TCP connection with automatic reconnect and exponential backoff; kept alive while idle, so long poll intervals no longer lose it
 - Network interface selector for multi-homed servers
 - Connection test button in the admin UI — it really logs in, and says what it checked
 
@@ -28,7 +32,7 @@ Monitors uninterruptible power supplies via [Network UPS Tools (NUT)](https://ne
 
 ## Sentry / Error reporting
 
-**This adapter uses Sentry libraries to automatically report exceptions and code errors to the developers.** Reporting only happens if you have enabled error reporting in the ioBroker diagnostics (**System settings → Diagnostics and error reporting**). Only an anonymous installation ID is transmitted — no name, e-mail address or IP address.
+**This adapter uses Sentry libraries to automatically report exceptions and code errors to the developers.** Reporting is active by default. It stays off when the ioBroker diagnostics setting is `none` (`diag` in the system configuration), when data reporting is disabled for this instance or its host (`disableDataReporting`), and on CI systems. A report contains the error with its stack trace and technical context such as versions and platform, plus an anonymous installation ID.
 
 For details and how to disable it, see the [Sentry plugin documentation](https://github.com/ioBroker/plugin-sentry#plugin-sentry). Error reporting requires js-controller 3.0 or newer.
 
@@ -147,8 +151,8 @@ nut2.0.
     │   └── ...
     ├── status/                        — Parsed status flags
     │   ├── raw                        — Original status string
-    │   ├── display                    — Human-readable status (e.g. "Online, Charging")
-    │   ├── severity                   — 0=OK, 1=Info, 2=Warning, 3=Critical, 4=Emergency
+    │   ├── display                    — Human-readable status (e.g. "On line power, Charging")
+    │   ├── severity                   — 0=OK, 1=Info, 2=Warning, 3=Critical, 4=Emergency (empty: no power source reported)
     │   ├── online                     — On line power (bool)
     │   ├── onBattery                  — Running on battery (bool)
     │   ├── lowBattery                 — Battery is low (bool)
@@ -162,14 +166,15 @@ nut2.0.
     │   ├── testing                    — Self-test in progress (bool)
     │   ├── overheat                   — UPS overheated (bool)
     │   └── ...                        — (19 flags total)
-    └── commands/                      — Instant commands (if enabled)
+    └── commands/                      — Instant commands (if enabled and the UPS offers any)
+        ├── execute                    — Text: a command with its value, e.g. "load.off.delay 120"
         ├── beeper-enable              — Button: enable beeper
         ├── beeper-disable             — Button: disable beeper
         ├── test-battery-start         — Button: start battery test
         └── ...                        — (from LIST CMD)
 ```
 
-> **State IDs:** the first dot in a NUT variable name is the channel separator; any further dots become dashes. So `battery.charge.low` is stored as `battery.charge-low`, and the instant command `test.battery.start` becomes `commands.test-battery-start`. A NUT variable without any dot (some drivers expose a bare `ALARM`) has no channel and is created directly under the device.
+> **State IDs:** the first dot in a NUT variable name is the channel separator; any further dots become dashes. So `battery.charge.low` is stored as `battery.charge-low`, and the instant command `test.battery.start` becomes `commands.test-battery-start`. A NUT variable without any dot has no channel and is created directly under the device.
 
 ### Status Severity Levels
 
@@ -180,6 +185,9 @@ nut2.0.
 | 2     | Warning   | OB (without LB), RB, BYPASS |
 | 3     | Critical  | OB + LB                     |
 | 4     | Emergency | FSD                         |
+| empty | —         | none of OL, OB, BYPASS, FSD |
+
+Severity describes the power source only. A status without one — `OFF` alone, `WAIT` while the driver starts, a PDU that reports no status — leaves it empty instead of claiming "OK".
 
 ---
 
@@ -187,10 +195,18 @@ nut2.0.
 
 NUT has no server push, so the adapter polls on a fixed interval. `upsmon` — NUT's own monitoring client — sees events the moment they happen and can run a command via `NOTIFYCMD`. Point it at the writable state `nut2.0.notify` and the adapter refreshes at once.
 
-In `upsmon.conf` on the NUT server (`curl` has to be installed there):
+On the NUT server, save a small helper script — for example as `/etc/nut/iobroker-notify.sh` — and make it executable (`chmod +x`). `curl` has to be installed there:
+
+```sh
+#!/bin/sh
+# Called by upsmon: the event is in $NOTIFYTYPE, the UPS in $UPSNAME.
+curl -fsS "http://<iobroker-host>:8093/v1/state/nut2.0.notify?value=${NOTIFYTYPE}%20${UPSNAME}" > /dev/null
+```
+
+In `upsmon.conf`:
 
 ```
-NOTIFYCMD "curl http://<iobroker-host>:8093/v1/state/nut2.0.notify?value=$NOTIFYTYPE%20$UPSNAME"
+NOTIFYCMD /etc/nut/iobroker-notify.sh
 NOTIFYFLAG ONLINE   SYSLOG+EXEC
 NOTIFYFLAG ONBATT   SYSLOG+EXEC
 NOTIFYFLAG LOWBATT  SYSLOG+EXEC
@@ -199,7 +215,7 @@ NOTIFYFLAG SHUTDOWN SYSLOG+EXEC
 NOTIFYFLAG REPLBATT SYSLOG+EXEC
 ```
 
-Only `NOTIFYFLAG` lines carrying `EXEC` run the command. The URL is served by the [rest-api](https://github.com/ioBroker/ioBroker.rest-api) adapter, so this works from a container as well — no ioBroker binaries on the NUT host, no extra script file. On installations still running the older `simple-api` the path is `http://<iobroker-host>:8082/set/nut2.0.notify?value=…`; its own README points to `rest-api` as the replacement.
+Only `NOTIFYFLAG` lines carrying `EXEC` run the command. A script works with every NUT version: from the release after NUT 2.8.5 on, `upsmon` starts `NOTIFYCMD` without a shell, so a command line with `$NOTIFYTYPE` written into `upsmon.conf` itself would no longer be expanded. The URL is served by the [rest-api](https://github.com/ioBroker/ioBroker.rest-api) adapter (port 8093), so this works from a container as well — no ioBroker binaries on the NUT host. With the older `simple-api` adapter the path is `http://<iobroker-host>:8087/set/nut2.0.notify?value=…` (8087 when it runs on its own, 8082 when it runs inside the web adapter); its own README points to `rest-api` as the replacement.
 
 Any write to `nut2.0.notify` triggers an immediate poll of all UPS devices; an empty value is a plain refresh. With `$NOTIFYTYPE $UPSNAME` the event also lands on that UPS's `{ups_name}.info.notify`, so an automation can react per device. The event is recorded before the poll starts, which is why a `SHUTDOWN` still reaches ioBroker when the NUT host dies moments later.
 
@@ -225,6 +241,8 @@ Any write to `nut2.0.notify` triggers an immediate poll of all UPS devices; an e
 - Ensure **Enable Commands** is checked in the Advanced tab
 - A NUT username and password with `instcmds` permission must be configured
 - Check the NUT server's `upsd.users` configuration
+- A UPS whose driver offers no instant commands gets no `commands` channel at all (`upscmd -l <ups>` on the server lists them)
+- "the driver has not confirmed it (yet)" in the log means the NUT server accepted the command but the driver did not report back within the command timeout
 
 ### Writable variables not working
 
@@ -301,12 +319,6 @@ Any write to `nut2.0.notify` triggers an immediate poll of all UPS devices; an e
 - Fixed: the connection test answers in your language now, like the rest of the settings page
 
 [Older changelogs can be found there](CHANGELOG_OLD.md)
-
-## Credits
-
-NUT support in ioBroker goes back to [Apollon77](https://github.com/Apollon77) — his `iobroker.nut` adapter brought the Network UPS Tools protocol to the platform in 2016 and served it until 2025. This adapter is an independent rewrite and shares no code with it.
-
----
 
 ## Support
 
