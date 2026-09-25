@@ -1,7 +1,7 @@
 import type * as utils from "@iobroker/adapter-core";
 import { tDesc, tName, tRaw, tText, type I18nKey } from "./i18n";
 import { ALL_FLAG_KEYS, descKeyOf, FLAG_META, getDisplayEntries, parseStatus } from "./status-parser";
-import { detectStates, detectType } from "./type-detector";
+import { detectStates, detectType, isNumericStateWord } from "./type-detector";
 import type { NutCommand, NutVariable } from "./types";
 
 type LocalizedName = ioBroker.StringOrTranslated;
@@ -1002,13 +1002,12 @@ export class StateManager {
       const isWritable = rwNames.has(v.name);
       const detected = detectType(v.name, v.value, isWritable);
 
-      // Garbage value in a numeric field (e.g. "Infinity", "12abc") → discard
-      // instead of storing junk, and warn once per variable (no log spam).
+      // A word in a measurement (design #42, extended 2026-09-25): the datapoint stays a number and
+      // gets NO value. Discarding it left the last reading standing — apc_modbus reports
+      // ups.efficiency = "OnBattery" exactly while the UPS runs on battery, and the old 95 % stayed.
+      // A driver's "no reading" word is a state (debug); anything else is junk, said once.
       if (detected.expectedNumeric) {
-        // Keyed per UPS, not per variable name: the warning names the UPS, so a second UPS
-        // reporting the same junk has to be able to say so once as well.
-        this.warnValueMismatch(upsName, v.name, `non-numeric value ${JSON.stringify(v.value)} for a numeric variable`);
-        continue;
+        this.reportEmptyReading(upsName, v.name, v.value, detected.stateWord === true);
       }
 
       const stateId = nutVarToStateId(upsName, v.name);
@@ -1031,16 +1030,23 @@ export class StateManager {
       // script that trusts the declared type. `expectedNumeric` only ever caught the variables
       // detectUnit knows; this covers the rest, including driver.flag.* going boolean → string.
       // null stays allowed — it is "no value" for every type (an idle countdown writes it).
-      if (detected.parsedValue !== null && typeof detected.parsedValue !== effectiveType) {
-        this.warnValueMismatch(
-          upsName,
-          v.name,
-          `value ${JSON.stringify(v.value)} is a ${typeof detected.parsedValue}, but the data point is a ${effectiveType} (restart the adapter to re-type it)`,
-        );
-        continue;
+      let val = detected.parsedValue;
+      if (val !== null && typeof val !== effectiveType) {
+        if (effectiveType === "number" && typeof val === "string") {
+          // A number datapoint receiving a word: no reading, not a stale one (same rule as above).
+          this.reportEmptyReading(upsName, v.name, v.value, isNumericStateWord(v.value));
+          val = null;
+        } else {
+          this.warnValueMismatch(
+            upsName,
+            v.name,
+            `value ${JSON.stringify(v.value)} is a ${typeof val}, but the data point is a ${effectiveType} (restart the adapter to re-type it)`,
+          );
+          continue;
+        }
       }
 
-      await this.adapter.setStateChangedAsync(stateId, { val: detected.parsedValue, ack: true });
+      await this.adapter.setStateChangedAsync(stateId, { val, ack: true });
     }
   }
 
@@ -1061,6 +1067,31 @@ export class StateManager {
     }
     this.warnedGarbageVars.add(warnKey);
     this.adapter.log.warn(`Discarding ${what} — variable '${varName}' on ${upsName}`);
+  }
+
+  /**
+   * A measurement arrived as a word: the datapoint gets no value. A driver's own "no reading" word
+   * is a state and goes to debug; any other word is junk from the driver, warned about once per
+   * UPS and variable.
+   *
+   * @param upsName UPS identifier
+   * @param varName NUT variable name
+   * @param raw The raw value
+   * @param stateWord Whether the value is a known "no reading" word
+   */
+  private reportEmptyReading(upsName: string, varName: string, raw: string, stateWord: boolean): void {
+    const what = `'${varName}' on ${upsName} reports ${JSON.stringify(raw)}`;
+    if (stateWord) {
+      this.adapter.log.debug(`${what} — no reading, the datapoint is left empty`);
+      return;
+    }
+    const warnKey = `${upsName}.${varName}`;
+    if (this.warnedGarbageVars.has(warnKey)) {
+      this.adapter.log.debug(`${what} — not a number, the datapoint is left empty`);
+      return;
+    }
+    this.warnedGarbageVars.add(warnKey);
+    this.adapter.log.warn(`${what}, which is not a number — the datapoint is left empty`);
   }
 
   /**

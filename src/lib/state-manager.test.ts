@@ -764,27 +764,39 @@ describe("StateManager", () => {
       expect(states.get("ups0.ups.status")?.val).toBe("OL");
     });
 
-    it("discards garbage in a numeric field and warns exactly once", async () => {
-      const { adapter, states, logs } = createMockAdapter();
+    it("B3: stores no value for garbage in a numeric field and warns exactly once", async () => {
+      const { adapter, objects, states, logs } = createMockAdapter();
       const sm = new StateManager(adapter);
 
-      // battery.charge carries a unit → it is expected numeric. Storing
-      // "Infinity" would flip the datapoint's type and every consumer reading
-      // it (charts, scripts) gets a value it cannot use.
+      // battery.charge carries a unit → it is a measurement. "Infinity" is no reading: the
+      // datapoint stays a number and gets null — never the junk, never a stale reading.
+      await sm.updateVariables("ups0", [{ name: "battery.charge", value: "77" }], new Set());
       await sm.updateVariables("ups0", [{ name: "battery.charge", value: "Infinity" }], new Set());
-      expect(states.has("ups0.battery.charge")).toBe(false);
-      const warns = (): string[] => logs.filter(l => l.startsWith("WARN:") && l.includes("Discarding non-numeric"));
+      expect(objects.get("ups0.battery.charge")?.common.type).toBe("number");
+      expect(states.get("ups0.battery.charge")).toEqual({ val: null, ack: true });
+      const warns = (): string[] => logs.filter(l => l.startsWith("WARN:") && l.includes("which is not a number"));
       expect(warns()).toHaveLength(1);
 
-      // Second poll with the same garbage: dropped again, but no second warn —
+      // Second poll with the same garbage: empty again, but no second warn —
       // a UPS that reports junk every 15 s must not flood the log.
       await sm.updateVariables("ups0", [{ name: "battery.charge", value: "12abc" }], new Set());
-      expect(states.has("ups0.battery.charge")).toBe(false);
+      expect(states.get("ups0.battery.charge")?.val).toBeNull();
       expect(warns()).toHaveLength(1);
 
       // A good value afterwards still lands.
       await sm.updateVariables("ups0", [{ name: "battery.charge", value: "77" }], new Set());
       expect(states.get("ups0.battery.charge")?.val).toBe(77);
+    });
+
+    it("B3: a driver's 'no reading' word empties the value without a warning", async () => {
+      // apc_modbus: ups.efficiency = OnBattery while on battery (apc_modbus.c:509-545). The old
+      // code discarded it, so the last efficiency (95 %) stayed during the whole outage.
+      const { adapter, states, logs } = createMockAdapter();
+      const sm = new StateManager(adapter);
+      await sm.updateVariables("ups0", [{ name: "ups.efficiency", value: "95" }], new Set());
+      await sm.updateVariables("ups0", [{ name: "ups.efficiency", value: "OnBattery" }], new Set());
+      expect(states.get("ups0.ups.efficiency")).toEqual({ val: null, ack: true });
+      expect(logs.some(l => l.startsWith("WARN"))).toBe(false);
     });
 
     it("should create channels automatically", async () => {
@@ -1336,7 +1348,7 @@ describe("StateManager", () => {
     it("a returning UPS may report its first garbage value again", async () => {
       const { adapter, logs } = createMockAdapter();
       const sm = new StateManager(adapter);
-      const warns = (): string[] => logs.filter(l => l.startsWith("WARN:") && l.includes("Discarding non-numeric"));
+      const warns = (): string[] => logs.filter(l => l.startsWith("WARN:") && l.includes("which is not a number"));
 
       await sm.ensureUpsDevice("ups0", "Main");
       await sm.updateVariables("ups0", [{ name: "battery.charge", value: "Infinity" }], new Set());
@@ -1353,7 +1365,7 @@ describe("StateManager", () => {
       // say so once as well — a name-only key silenced it.
       const { adapter, logs } = createMockAdapter();
       const sm = new StateManager(adapter);
-      const warns = (): string[] => logs.filter(l => l.startsWith("WARN:") && l.includes("Discarding non-numeric"));
+      const warns = (): string[] => logs.filter(l => l.startsWith("WARN:") && l.includes("which is not a number"));
 
       await sm.updateVariables("ups0", [{ name: "battery.charge", value: "Infinity" }], new Set());
       await sm.updateVariables("ups1", [{ name: "battery.charge", value: "Infinity" }], new Set());
@@ -2416,8 +2428,12 @@ describe("a value that no longer fits its data point", () => {
     expect(objects.get("ups0.input.phases")?.common.type).toBe("number");
     expect(states.get("ups0.input.phases")).toEqual({ val: 1, ack: true });
 
+    // A word in a number datapoint the unit catalog does not know: no value, not the stale 1.
     await sm.updateVariables("ups0", [{ name: "input.phases", value: "n/a" }], new Set());
-    expect(states.get("ups0.input.phases")).toEqual({ val: 1, ack: true });
+    expect(states.get("ups0.input.phases")).toEqual({ val: null, ack: true });
+    expect(logs.some(l => l.startsWith("WARN"))).toBe(false); // "n/a" is a "no reading" word
+    await sm.updateVariables("ups0", [{ name: "input.phases", value: "three" }], new Set());
+    expect(states.get("ups0.input.phases")).toEqual({ val: null, ack: true });
     expect(logs.some(l => l.startsWith("WARN") && l.includes("input.phases"))).toBe(true);
   });
 
@@ -2485,7 +2501,7 @@ describe("a dotless variable must not take a channel's id", () => {
     const { adapter, logs } = createMockAdapter();
     const sm = new StateManager(adapter);
     await sm.updateVariables("ups0", [{ name: "voltage", value: "not-a-number" }], new Set());
-    expect(logs.filter(l => l.startsWith("WARN") && l.includes("Discarding"))).toHaveLength(1);
+    expect(logs.filter(l => l.startsWith("WARN") && l.includes("which is not a number"))).toHaveLength(1);
 
     await sm.updateVariables(
       "ups0",

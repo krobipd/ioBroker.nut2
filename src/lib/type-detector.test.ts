@@ -1,4 +1,4 @@
-import { detectStates, detectType } from "./type-detector";
+import { detectStates, detectType, isNumericStateWord } from "./type-detector";
 
 describe("type-detector", () => {
   // -----------------------------------------------------------------------
@@ -206,26 +206,33 @@ describe("type-detector", () => {
 
     // Strict decimal: garbage suffixes and non-finite tokens are NOT numbers
     // (krobi 2026-06-21 via test-lab: a number field never holds letters; a
-    // non-finite value must not silently become null on setState).
+    // non-finite value must not silently become null on setState). Since the 2026-09-25 audit
+    // (E10) a measurement keeps its number type and gets NO value instead of being discarded —
+    // a discarded value left the last reading standing.
     it("should NOT parse garbage-suffix as number (12abc)", () => {
       const r = detectType("battery.charge", "12abc", false);
-      expect(r.type).toBe("string");
-      expect(r.parsedValue).toBe("12abc");
+      expect(r.type).toBe("number");
+      expect(r.parsedValue).toBeNull();
+      expect(r.unit).toBe("%");
       expect(r.expectedNumeric).toBe(true); // charge is a numeric quantity (%)
+      expect(r.stateWord).toBe(false); // garbage, not a "no reading" word
     });
 
     it("should NOT parse Infinity as number", () => {
       const r = detectType("input.voltage", "Infinity", false);
-      expect(r.type).toBe("string");
-      expect(r.parsedValue).toBe("Infinity");
+      expect(r.type).toBe("number");
+      expect(r.parsedValue).toBeNull();
       expect(r.expectedNumeric).toBe(true); // voltage is a numeric quantity (V)
     });
 
     it("flags garbage in a numeric field but not in a genuine text field", () => {
-      // numeric quantity (has a unit) + garbage → expectedNumeric (discard+warn)
-      expect(detectType("ups.load", "n/a", false).expectedNumeric).toBe(true);
+      // numeric quantity (has a unit) + a word → an empty number; n/a is a "no reading" word
+      const na = detectType("ups.load", "n/a", false);
+      expect(na.expectedNumeric).toBe(true);
+      expect(na.stateWord).toBe(true);
+      expect(na.role).toBe("value");
       // no unit → a genuine text value, keep it as string
-      expect(detectType("some.unknown.var", "enabled", false).expectedNumeric).toBe(false);
+      expect(detectType("some.unknown.var", "enabled", false).expectedNumeric).toBeUndefined();
     });
 
     it("types yes/no readings as real booleans, even with a unit substring in the name", () => {
@@ -243,30 +250,34 @@ describe("type-detector", () => {
       expect(detectType("ambient.1.present", "yes", false).parsedValue).toBe(true);
     });
 
-    it("treats battery.charge.approx as a numeric percent — a bound like <85 is not stored", () => {
-      // A rough approximation is a percent: a clean number is stored as a number…
-      const num = detectType("battery.charge.approx", "85", false);
-      expect(num.type).toBe("number");
-      expect(num.parsedValue).toBe(85);
-      expect(num.unit).toBe("%");
-      // …but a non-numeric bound ("<85") does not belong in a number field → flagged for discard.
-      expect(detectType("battery.charge.approx", "<85", false).expectedNumeric).toBe(true);
+    it("B2: keeps battery.charge.approx as text — the only driver reports <85 / >85", () => {
+      // nut-names.txt: "Rough approximation of battery charge (opaque, percent)"; the only driver
+      // setting it (nutdrv_siemens_sitop.c:237) writes ">85" or "<85". As a number it was discarded
+      // on every poll, and the datapoint never got a value.
+      for (const v of ["<85", ">85", "85"]) {
+        const r = detectType("battery.charge.approx", v, false);
+        expect(r.type).toBe("string");
+        expect(r.parsedValue).toBe(v);
+        expect(r.role).toBe("text");
+      }
     });
 
     it("should NOT parse -Infinity as number", () => {
       const r = detectType("output.voltage", "-Infinity", false);
-      expect(r.type).toBe("string");
+      expect(r.parsedValue).toBeNull();
+      expect(r.expectedNumeric).toBe(true);
     });
 
     it("should NOT parse locale comma as number (230,4)", () => {
       const r = detectType("battery.voltage", "230,4", false);
-      expect(r.type).toBe("string");
-      expect(r.parsedValue).toBe("230,4");
+      expect(r.parsedValue).toBeNull();
+      expect(r.expectedNumeric).toBe(true);
     });
 
     it("should NOT parse scientific notation as number (1e3)", () => {
       const r = detectType("ups.realpower", "1e3", false);
-      expect(r.type).toBe("string");
+      expect(r.parsedValue).toBeNull();
+      expect(r.expectedNumeric).toBe(true);
     });
   });
 
@@ -402,8 +413,14 @@ describe("type-detector", () => {
       expect(detectType("output.current", "2.5", false).role).toBe("value.current");
     });
 
-    it("should assign value.power for power vars", () => {
-      expect(detectType("ups.power", "159", false).role).toBe("value.power");
+    it("B1: apparent power (VA) is the generic value — value.power requires W/kW", () => {
+      // Role catalog: `value.power - energy power (unit=W or kW)`; value.power.apparent does not
+      // exist. D08 was red on seven VA datapoints with value.power.
+      for (const name of ["ups.power", "ups.power.nominal", "input.power", "output.L1.power", "outlet.1.power"]) {
+        const r = detectType(name, "159", false);
+        expect(r.role, name).toBe("value");
+        expect(r.unit, name).toBe("VA");
+      }
     });
 
     it("should assign value.power.active for realpower vars (real/active power)", () => {
@@ -438,16 +455,16 @@ describe("type-detector", () => {
       expect(detectType("ups.timer.shutdown", "-1", false).role).toBe("value.interval");
     });
 
-    it("should assign level for writable delay", () => {
-      expect(detectType("ups.delay.shutdown", "20", true).role).toBe("level");
+    it("B5: a writable delay is a timer set-point (level.timer)", () => {
+      expect(detectType("ups.delay.shutdown", "20", true).role).toBe("level.timer");
     });
 
     it("should assign text for writable strings", () => {
       expect(detectType("outlet.desc", "Main Outlet", true).role).toBe("text");
     });
 
-    it("should assign level for writable voltage", () => {
-      expect(detectType("input.transfer.high", "285", true).role).toBe("level");
+    it("B4: a writable voltage is level.voltage", () => {
+      expect(detectType("input.transfer.high", "285", true).role).toBe("level.voltage");
     });
   });
 
@@ -829,5 +846,147 @@ describe("type-detector", () => {
     it("output.frequency.status → same enum", () => {
       expect(detectStates("output.frequency.status")?.["critical-low"]).toBe("critical-low");
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Audit 2026-09-25 — type detection (plan package B)
+// ---------------------------------------------------------------------------
+
+describe("B1 power and percent — role and unit agree with the role catalog", () => {
+  it.each([
+    ["power.percent", "%", "value"],
+    ["power.maximum.percent", "%", "value"],
+    ["output.L1.power.percent", "%", "value"],
+    ["output.power.percent", "%", "value"],
+    ["power.maximum", "VA", "value"],
+    ["power.minimum", "VA", "value"],
+    ["output.L2.power.maximum", "VA", "value"],
+    ["input.power", "VA", "value"],
+    ["ups.realpower", "W", "value.power.active"],
+    ["output.realpower", "W", "value.power.active"],
+    ["input.realpower.nominal", "W", "value.power.active"],
+    ["battery.energysave.realpower", "W", "value.power.active"],
+  ])("%s → %s, %s", (name, unit, role) => {
+    const r = detectType(name, "42", false);
+    expect(r.unit).toBe(unit);
+    expect(r.role).toBe(role);
+  });
+});
+
+describe("B2 opaque catalog values stay text whatever digits they carry", () => {
+  it.each([
+    ["ups.contacts", "00"],
+    ["ups.contacts", "0F"],
+    ["input.quality", "FF"],
+    ["input.quality", "00"],
+    ["ups.test.result", "NO"],
+    ["ups.test.result", "OK"],
+    ["ups.firmware.aux", "02.08"],
+    ["ups.time", "12:34:56"],
+    ["ups.display.language", "1"],
+    ["device.macaddr", "00:c0:b7:12:34:56"],
+    ["device.description", "12"],
+    ["battery.date.maintenance", "2027"],
+    ["outlet.1.designator", "1"],
+    ["input.sensitivity", "2"],
+    ["ambient.1.contacts.1.config", "0"],
+    ["input.transfer.reason", "1"],
+    ["ups.mode", "2"],
+    ["experimental.ups.mode.buzzwords", "1"],
+    ["driver.parameter.bus", "001"],
+    ["driver.parameter.runtimecal", "8640,100,17280,50"],
+    ["driver.parameter.productID", "0000"],
+  ])("%s = %j", (name, value) => {
+    const r = detectType(name, value, false);
+    expect(r.type).toBe("string");
+    expect(r.parsedValue).toBe(value);
+  });
+
+  it("keeps the two poll timings of the driver core numeric", () => {
+    expect(detectType("driver.parameter.pollinterval", "2", false).type).toBe("number");
+    expect(detectType("driver.parameter.pollfreq", "30", false).type).toBe("number");
+  });
+
+  it("does not turn numeric experimental.*.mode variables into text", () => {
+    // bicker_ser.c:504 and meanwell_ntu.c:61-68 publish them as numbers.
+    expect(detectType("experimental.ups.relay.mode", "3", false).type).toBe("number");
+    expect(detectType("experimental.inverter.mode", "1", false).type).toBe("number");
+  });
+});
+
+describe("B3 a word in a measurement is an empty number, not a lost or stale reading", () => {
+  it.each(["LoadTooLow", "OnBattery", "NotAvailable", "BatteryCharging", "PoorACInput", "NA", "N/A", "none"])(
+    "ups.efficiency = %j → number without value, a state word",
+    word => {
+      const r = detectType("ups.efficiency", word, false);
+      expect(r.type).toBe("number");
+      expect(r.unit).toBe("%");
+      expect(r.parsedValue).toBeNull();
+      expect(r.stateWord).toBe(true);
+      expect(isNumericStateWord(word)).toBe(true);
+    },
+  );
+
+  it("an empty value with a unit is an empty number", () => {
+    const r = detectType("input.voltage", "", false);
+    expect(r.type).toBe("number");
+    expect(r.parsedValue).toBeNull();
+  });
+
+  it("a driver-private variable outside the catalog keeps its text", () => {
+    // apcmicrolink: experimental.output.voltage.setting = "VAC230".
+    const r = detectType("experimental.output.voltage.setting", "VAC230", false);
+    expect(r.type).toBe("string");
+    expect(r.parsedValue).toBe("VAC230");
+    expect(r.expectedNumeric).toBeUndefined();
+  });
+});
+
+describe("B4 writable set-points get the level role of their quantity", () => {
+  it.each([
+    ["ambient.1.temperature.high.warning", "level.temperature"],
+    ["ambient.temperature.high", "level.temperature"],
+    ["output.current.high", "level.current"],
+    ["input.transfer.low", "level.voltage"],
+    ["output.voltage.nominal", "level.voltage"],
+    ["input.frequency.nominal", "level.frequency"],
+    ["ambient.1.humidity.high", "level.humidity"],
+    ["ups.power.nominal", "level"],
+    ["battery.charge.low", "level"],
+    ["power.percent", "level"],
+  ])("%s → %s", (name, role) => {
+    expect(detectType(name, "40", true).role).toBe(role);
+  });
+
+  it("never gives a writable number a value.* role", () => {
+    for (const name of ["ambient.1.temperature.low", "outlet.1.current.high.warning", "ups.test.interval"]) {
+      expect(detectType(name, "1", true).role.startsWith("value"), name).toBe(false);
+    }
+  });
+});
+
+describe("B5 durations are intervals", () => {
+  it.each(["input.transfer.delay", "device.uptime", "ups.test.interval", "output.inverter.latency", "ups.delay.start"])(
+    "%s → value.interval (read-only), level.timer (writable)",
+    name => {
+      expect(detectType(name, "10", false).role).toBe("value.interval");
+      expect(detectType(name, "10", false).unit).toBe("s");
+      expect(detectType(name, "10", true).role).toBe("level.timer");
+    },
+  );
+
+  it("battery.energysave.delay is minutes, so the generic value", () => {
+    const r = detectType("battery.energysave.delay", "5", false);
+    expect(r.unit).toBe("min");
+    expect(r.role).toBe("value");
+  });
+});
+
+describe("B6 a countdown printed as -1.0 is idle too", () => {
+  it.each(["-1", "-1.0", "-1.00"])("ups.timer.shutdown = %s → no value", raw => {
+    const r = detectType("ups.timer.shutdown", raw, false);
+    expect(r.type).toBe("number");
+    expect(r.parsedValue).toBeNull();
   });
 });

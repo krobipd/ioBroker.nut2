@@ -22,10 +22,79 @@ const KNOWN_STRING_SUFFIXES = new Set([
   "address",
   "color",
   "groupid",
+  // Text by definition in nut-names.txt; every one of these endings names exactly one catalog
+  // variable, and each can arrive as bare digits from some driver: ups.firmware.aux ("4Kx", but
+  // also "02.08"), ups.contacts and input.quality (apcsmart passes raw hex such as "00"/"0F"/"FF",
+  // apcsmart_tabs.c:34/39), ups.test.result ("NO"/"OK" from apcsmart), input.transfer.reason,
+  // ups.time, ups.display.language, device.macaddr, device.description, battery.date.maintenance,
+  // outlet.n.designator, input.sensitivity ("H"), ambient.n.contacts.x.config,
+  // experimental.ups.mode.buzzwords. As a number the first value would fix the type and every
+  // later non-numeric reading would be lost.
+  "aux",
+  "contacts",
+  "quality",
+  "result",
+  "reason",
+  "time",
+  "language",
+  "macaddr",
+  "description",
+  "maintenance",
+  "designator",
+  "sensitivity",
+  "config",
+  "buzzwords",
+]);
+
+/** Known-string exact names — text although their last segment says nothing. */
+const KNOWN_STRING_NAMES = new Set([
+  // "Current UPS mode" (nut-names.txt). Not a "mode" ending: experimental.ups.relay.mode
+  // (bicker_ser.c:504) and the experimental.*.mode bits of meanwell_ntu are numbers.
+  "ups.mode",
+  // "Rough approximation of battery charge (opaque, percent)", only ever "<85"/">85"
+  // (drivers/nutdrv_siemens_sitop.c:237) — with the "charge" unit rule it was discarded as garbage.
+  "battery.charge.approx",
 ]);
 
 /** Known-string exact prefixes — always string. */
-const KNOWN_STRING_PREFIXES = ["driver.parameter.port", "driver.parameter.synchronous", "driver.version."];
+const KNOWN_STRING_PREFIXES = ["driver.version."];
+
+/**
+ * `driver.parameter.<key>` echoes the driver's ups.conf setting verbatim (drivers/main.c prints
+ * every one with "%s"): `runtimecal = 240,100,720,50`, `bus = "001"`, `port = auto`. A config echo
+ * is text — as a number `001` would lose its zeros and `runtimecal` would be discarded for its
+ * "runtime" substring. The two exceptions are the poll timings the driver core itself publishes as
+ * numbers (drivers/main.c:3177, `%jd`).
+ */
+const NUMERIC_DRIVER_PARAMETERS = new Set(["driver.parameter.pollinterval", "driver.parameter.pollfreq"]);
+
+/**
+ * Words drivers put into numeric fields to say "no reading right now" — a state, not garbage.
+ * apc_modbus writes these for ups.efficiency (drivers/apc_modbus.c:509-545); NA/N/A, "not
+ * available", "overrange" and "none" come from other drivers (metasys.c, belkinunv.c).
+ */
+const NUMERIC_STATE_WORDS = new Set([
+  "notavailable",
+  "not available",
+  "loadtoolow",
+  "outputoff",
+  "onbattery",
+  "inbypass",
+  "batterycharging",
+  "pooracinput",
+  "batterydisconnected",
+  "na",
+  "n/a",
+  "overrange",
+  "none",
+]);
+
+/**
+ * Namespaces outside the NUT catalog (driver-private additions). A unit guessed from their name is
+ * a guess, not a contract: a non-numeric value stays text there instead of becoming an empty number
+ * (apcmicrolink's experimental.output.voltage.setting reads "VAC230").
+ */
+const NON_CATALOG_PREFIXES = ["experimental.", "unmapped.", "vendor."];
 
 /**
  * Countdown timers (`ups.timer.*`, `outlet[.n].timer.*`, `outlet.group.n.timer.*`). Drivers
@@ -50,11 +119,17 @@ export interface TypeDetectResult {
   /** Parsed value (number, string or boolean; null for a countdown that is not running) */
   parsedValue: number | string | boolean | null;
   /**
-   * True when the variable name denotes a numeric quantity (carries a unit) but
-   * the raw value is not a strict number (garbage / non-finite). The caller
-   * should discard the value and warn once rather than store junk.
+   * True when the variable name denotes a numeric quantity (carries a unit) but the raw value is
+   * not a strict number. The result is then already a number without a value (`parsedValue: null`,
+   * role and unit as for a reading): the datapoint stays a number and shows "no reading" instead of
+   * keeping a stale one.
    */
   expectedNumeric?: boolean;
+  /**
+   * With expectedNumeric: the value is one of the words drivers use for "no reading right now"
+   * (a state, logged at debug) rather than garbage (warned about once).
+   */
+  stateWord?: boolean;
 }
 
 /**
@@ -108,7 +183,8 @@ export function detectType(varName: string, rawValue: string, isWritable: boolea
     // The role has to match what the RUNNING countdown gets from detectRole below, or a writable
     // timer would carry a different role depending on which value the first poll happened to see.
     const idleRole = detectRole(varName, "number", isWritable);
-    if (idle === "notactive" || rawValue === "-1") {
+    // "-1.0" is the same idle marker as "-1" — any driver printing it with "%.1f".
+    if (idle === "notactive" || parseDecimal(rawValue) === -1) {
       return { type: "number", role: idleRole, unit: "s", read: true, write: isWritable, parsedValue: null };
     }
     if (idle === "countdownexpired") {
@@ -158,9 +234,24 @@ export function detectType(varName: string, rawValue: string, isWritable: boolea
     };
   }
 
-  // Not a known string and not a strict number → opaque string. If the variable
-  // name denotes a numeric quantity (carries a unit), the value is garbage for a
-  // number field → flag it so the caller discards it and warns once.
+  // Not a known string and not a strict number. A catalog variable whose name carries a unit is a
+  // measurement: the datapoint stays a number and gets no value (null) — a driver saying "no reading"
+  // (apc_modbus: ups.efficiency = OnBattery while on battery) must not leave the last reading
+  // standing, and must not turn the datapoint into text either.
+  const unit = detectUnit(varName);
+  if (unit !== undefined && !NON_CATALOG_PREFIXES.some(p => varName.startsWith(p))) {
+    return {
+      type: "number",
+      role: detectRole(varName, "number", isWritable),
+      unit,
+      read: true,
+      write: isWritable,
+      parsedValue: null,
+      expectedNumeric: true,
+      stateWord: NUMERIC_STATE_WORDS.has(rawValue.toLowerCase()),
+    };
+  }
+  // Everything else is an opaque string.
   return {
     type: "string",
     role: detectRole(varName, "string", isWritable),
@@ -168,8 +259,17 @@ export function detectType(varName: string, rawValue: string, isWritable: boolea
     read: true,
     write: isWritable,
     parsedValue: rawValue,
-    expectedNumeric: detectUnit(varName) !== undefined,
   };
+}
+
+/**
+ * Whether a raw value is one of the words drivers put into a numeric field for "no reading right
+ * now" (see NUMERIC_STATE_WORDS).
+ *
+ * @param rawValue Raw string value from LIST VAR
+ */
+export function isNumericStateWord(rawValue: string): boolean {
+  return NUMERIC_STATE_WORDS.has(rawValue.trim().toLowerCase());
 }
 
 /**
@@ -207,16 +307,24 @@ function parseFlagValue(rawValue: string): boolean | undefined {
 }
 
 function isKnownString(varName: string): boolean {
+  if (KNOWN_STRING_NAMES.has(varName)) {
+    return true;
+  }
   const lastDot = varName.lastIndexOf(".");
   if (lastDot >= 0) {
-    const suffix = varName.slice(lastDot + 1);
+    // Case-insensitive: drivers are not consistent (driver.parameter.productID, vendorID).
+    const suffix = varName.slice(lastDot + 1).toLowerCase();
     if (KNOWN_STRING_SUFFIXES.has(suffix)) {
       return true;
     }
   }
 
+  if (varName.startsWith("driver.parameter.") && !NUMERIC_DRIVER_PARAMETERS.has(varName)) {
+    return true;
+  }
+
   for (const prefix of KNOWN_STRING_PREFIXES) {
-    if (varName.startsWith(prefix) || varName === prefix) {
+    if (varName.startsWith(prefix)) {
       return true;
     }
   }
@@ -236,8 +344,10 @@ function isTransferVoltage(varName: string): boolean {
 
 // Only called for numeric variables (string vars never carry a unit).
 function detectUnit(varName: string): string | undefined {
-  // Percent-of-nominal ranges carry "frequency" in the name but are a percentage.
-  if (/\.frequency\..+\.range$/.test(varName)) {
+  // Percent-of-nominal ranges carry "frequency" in the name but are a percentage, and every
+  // *.percent is a share (output.L1.power.percent, power.maximum.percent) — checked first, before
+  // the quantity its name mentions.
+  if (/\.frequency\..+\.range$/.test(varName) || isPercent(varName)) {
     return "%";
   }
   // Minutes (checked before the generic seconds rules that also match ".delay").
@@ -281,10 +391,12 @@ function detectUnit(varName: string): string | undefined {
   ) {
     return "s";
   }
-  if (varName.endsWith(".realpower") || varName.endsWith(".realpower.nominal")) {
+  // Real power in W; apparent power in VA — including the seen extremes (nut-names.txt:
+  // "Maximum seen apparent power (VA)").
+  if (/(^|\.)realpower(\.(nominal|maximum|minimum))?$/.test(varName)) {
     return "W";
   }
-  if (varName.endsWith(".power") || varName.endsWith(".power.nominal")) {
+  if (/(^|\.)power(\.(nominal|maximum|minimum))?$/.test(varName)) {
     return "VA";
   }
   if (varName.includes("capacity")) {
@@ -294,6 +406,32 @@ function detectUnit(varName: string): string | undefined {
     return "°";
   }
   return undefined;
+}
+
+/**
+ * Whether a variable is a share in percent (`*.percent`, `percent`).
+ *
+ * @param varName NUT variable name
+ */
+function isPercent(varName: string): boolean {
+  return varName === "percent" || varName.endsWith(".percent");
+}
+
+/**
+ * Whether a variable is a duration or interval in seconds (or minutes for the energy-save delay).
+ *
+ * @param varName NUT variable name
+ */
+function isDuration(varName: string): boolean {
+  return (
+    varName.includes("runtime") ||
+    varName.includes(".delay.") ||
+    varName.endsWith(".delay") ||
+    varName.includes(".timer.") ||
+    varName.endsWith(".uptime") ||
+    varName.endsWith(".test.interval") ||
+    varName.endsWith(".latency")
+  );
 }
 
 function detectRole(varName: string, type: "number" | "string", isWritable: boolean): string {
@@ -306,38 +444,49 @@ function detectRole(varName: string, type: "number" | "string", isWritable: bool
     return "text";
   }
 
-  // Numeric roles.
+  // Numeric roles. A writable variable is a set-point: it gets the level.* role of its quantity
+  // where ioBroker has one (level.voltage/.current/.temperature/.frequency/.humidity/.timer; the
+  // repochecker requires write:false for every value.* role), the plain `level` otherwise.
   if (varName === "battery.charge") {
     return "value.battery";
   }
+  // A share is a share, whatever quantity its name mentions — never value.power with unit "%".
+  if (isPercent(varName)) {
+    return isWritable ? "level" : "value";
+  }
   if (varName.includes("voltage") || isTransferVoltage(varName)) {
-    return isWritable ? "level" : "value.voltage";
+    return isWritable ? "level.voltage" : "value.voltage";
   }
   if (varName.includes("temperature")) {
-    return "value.temperature";
+    return isWritable ? "level.temperature" : "value.temperature";
   }
   if (varName.includes("current")) {
-    return "value.current";
+    return isWritable ? "level.current" : "value.current";
   }
   // Real frequency (Hz) → value.frequency. A "*.frequency.*.range" is a percentage-of-nominal
   // band (unit %), not a frequency reading, so it stays the generic value role.
   if (varName.includes("frequency") && !/\.frequency\..+\.range$/.test(varName)) {
-    return isWritable ? "level" : "value.frequency";
+    return isWritable ? "level.frequency" : "value.frequency";
   }
   if (varName.includes("humidity")) {
-    return isWritable ? "level" : "value.humidity";
+    return isWritable ? "level.humidity" : "value.humidity";
   }
   // "powerfactor" contains "power" but is a 0..1 factor, not a power value.
   if (varName.includes("power") && !varName.includes("powerfactor")) {
     if (isWritable) {
       return "level";
     }
-    // realpower is real/active power (W); ups.power is apparent power (VA) — ioBroker has no
-    // value.power.apparent role, so apparent stays value.power.
-    return varName.includes("realpower") ? "value.power.active" : "value.power";
+    // Real power is value.power.active (W). Apparent power (VA) has no role of its own —
+    // value.power requires W/kW in the role catalog, and value.power.apparent does not exist — so
+    // it is the generic value with unit VA.
+    return varName.includes("realpower") ? "value.power.active" : "value";
   }
-  if (varName.includes("runtime") || varName.includes(".delay.") || varName.includes(".timer.")) {
-    return isWritable ? "level" : "value.interval";
+  if (varName === "battery.energysave.delay") {
+    // Minutes; value.interval is documented for seconds.
+    return isWritable ? "level.timer" : "value";
+  }
+  if (isDuration(varName)) {
+    return isWritable ? "level.timer" : "value.interval";
   }
 
   return isWritable ? "level" : "value";
