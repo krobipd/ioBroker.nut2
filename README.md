@@ -195,11 +195,10 @@ Severity describes the power source only. A status without one — `OFF` alone, 
 
 NUT has no server push, so the adapter polls on a fixed interval. `upsmon` — NUT's own monitoring client — sees events the moment they happen and can run a command via `NOTIFYCMD`. Point it at the writable state `nut2.0.notify` and the adapter refreshes at once.
 
-On the NUT server, save a small helper script — for example as `/etc/nut/iobroker-notify.sh` — and make it executable (`chmod +x`). `curl` has to be installed there:
+On the NUT server, save a small helper script — for example as `/etc/nut/iobroker-notify.sh` — and make it executable (`chmod +x`). `curl` has to be installed there. upsmon hands the event over in `$NOTIFYTYPE` and the UPS in `$UPSNAME`:
 
 ```sh
 #!/bin/sh
-# Called by upsmon: the event is in $NOTIFYTYPE, the UPS in $UPSNAME.
 curl -fsS "http://<iobroker-host>:8093/v1/state/nut2.0.notify?value=${NOTIFYTYPE}%20${UPSNAME}" > /dev/null
 ```
 
