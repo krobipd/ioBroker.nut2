@@ -66,6 +66,22 @@ describe("coerce", () => {
       }
       expect(errText(Symbol("boom"))).toContain("boom");
     });
+
+    it("renders an Error with an empty message by its code (net.connect to localhost)", () => {
+      expect(errText(Object.assign(new Error(""), { code: "ECONNREFUSED" }))).toBe("ECONNREFUSED");
+    });
+
+    it("adds the reason one level down in `cause` (fetch failed)", () => {
+      const err = new TypeError("fetch failed", { cause: new Error("getaddrinfo ENOTFOUND nut.local") });
+      expect(errText(err)).toBe("fetch failed (getaddrinfo ENOTFOUND nut.local)");
+    });
+
+    it("never prints the source of a thrown function", () => {
+      const thrown = function secretHandler(): string {
+        return "internals";
+      };
+      expect(errText(thrown)).toBe("[object Function]");
+    });
   });
 
   // -----------------------------------------------------------------------

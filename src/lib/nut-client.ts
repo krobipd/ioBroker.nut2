@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as net from "node:net";
 import * as tls from "node:tls";
-import { computeReconnectDelay } from "./coerce";
+import { computeReconnectDelay, errText } from "./coerce";
 import type { NutClientOptions, NutCommand, NutLogger, NutRange, NutVariable, UpsInfo } from "./types";
 import { NUT_DEFAULT_COMMAND_TIMEOUT } from "./types";
 
@@ -344,7 +344,7 @@ export class NutClient {
         return;
       }
       this.sendCommand("VER", false).catch((err: unknown) => {
-        this.log?.debug(`Keepalive VER: ${err instanceof Error ? err.message : String(err)}`);
+        this.log?.debug(`Keepalive VER: ${errText(err)}`);
       });
     }, KEEPALIVE_IDLE_MS);
   }
@@ -375,7 +375,7 @@ export class NutClient {
     this.socket = null;
     sock?.destroy();
 
-    const msg = err instanceof Error ? err.message : String(err);
+    const msg = errText(err);
     if (this.useTls && isTlsConfigError(err)) {
       // The adapter reports this at error level through onFatal — one line for the user, not two.
       this.log?.debug(`TLS connection to NUT server ${this.host}:${this.port} failed — not retrying: ${msg}`);
@@ -460,7 +460,7 @@ export class NutClient {
     socket.setEncoding("utf8");
     socket.on("data", (data: string) => this.onData(data));
     socket.on("error", (err: Error) => {
-      this.log?.debug(`Socket error: ${err.message}`);
+      this.log?.debug(`Socket error: ${errText(err)}`);
       if (!this.connected && rejectConnect) {
         rejectConnect(err);
       }
@@ -513,7 +513,7 @@ export class NutClient {
     try {
       pem = fs.readFileSync(this.tlsCaFile, "utf8");
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = errText(err);
       throw new NutError("TLS-CA-UNREADABLE", `TLS CA file ${this.tlsCaFile} cannot be read: ${msg}`);
     }
     if (!pem.includes("-----BEGIN CERTIFICATE-----")) {

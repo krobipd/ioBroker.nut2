@@ -69,6 +69,12 @@ function deepExtend(target: Record<string, any>, source: Record<string, any>): R
 }
 
 const NS = "nut2.0";
+/**
+ * A detached copy, the way js-controller answers every read.
+ *
+ * @param v The stored value
+ */
+const copyOf = <T>(v: T): T => (v === null || v === undefined ? v : (JSON.parse(JSON.stringify(v)) as T));
 
 function createMockAdapter(): {
   adapter: any;
@@ -112,8 +118,10 @@ function createMockAdapter(): {
       }
       return Promise.resolve();
     },
-    getObjectAsync: (id: string) => Promise.resolve(objects.get(id) ?? null),
-    getStateAsync: (id: string) => Promise.resolve(states.get(id) ?? null),
+    // js-controller hands every read a fresh value — a stub that returned its stored object would
+    // let the code under test change the "database" by mutating what it read.
+    getObjectAsync: (id: string) => Promise.resolve(copyOf(objects.get(id) ?? null)),
+    getStateAsync: (id: string) => Promise.resolve(copyOf(states.get(id) ?? null)),
     // The REPLACING write, as js-controller does it (`_setObjectWithDefaultValue` → the stored
     // object becomes exactly what is handed in). That is what makes removing a `common` attribute
     // possible at all — extendObject merges and would keep the key (with the value null, which the
@@ -128,13 +136,15 @@ function createMockAdapter(): {
       return Promise.resolve();
     },
     getForeignObjectAsync: (fullId: string) =>
-      Promise.resolve(fullId.startsWith("enum.") ? (enums.get(fullId) ?? null) : (objects.get(local(fullId)) ?? null)),
+      Promise.resolve(
+        copyOf(fullId.startsWith("enum.") ? (enums.get(fullId) ?? null) : (objects.get(local(fullId)) ?? null)),
+      ),
     // Every enum object, flat by id — what `getForeignObjects("enum.*", "enum")` answers.
     getForeignObjectsAsync: (pattern: string, type?: string) => {
       const result: Record<string, MockObj> = {};
       if (pattern === "enum.*" && (type === undefined || type === "enum")) {
         for (const [id, obj] of enums) {
-          result[id] = obj;
+          result[id] = copyOf(obj);
         }
       }
       return Promise.resolve(result);
@@ -199,7 +209,7 @@ function createMockAdapter(): {
     getAdapterObjectsAsync: () => {
       const result: Record<string, MockObj> = {};
       for (const [id, obj] of objects) {
-        result[`nut2.0.${id}`] = obj;
+        result[`nut2.0.${id}`] = copyOf(obj);
       }
       return Promise.resolve(result);
     },
