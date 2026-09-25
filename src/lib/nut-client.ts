@@ -10,24 +10,61 @@ const RECONNECT_BASE_MS = 1000;
 const RECONNECT_MAX_MS = 60000;
 
 /**
- * Hard bound for a single (incomplete) response line in the receive buffer. The command timeout
- * only bounds an ACTIVE command — between commands, a broken server streaming bytes without a
- * line break would grow the buffer without limit. No legitimate NUT line comes near this.
+ * upsd drops every client that has not sent a line for 60 seconds (server/upsd.c:1647 of NUT
+ * 2.8.5, "shed clients after 1 minute of inactivity"; only a received command refreshes the
+ * timestamp, :945 — TCP keepalive does not count). Poll intervals up to 300 s are allowed, so the
+ * persistent connection sends a cheap `VER` after this much silence.
+ */
+export const KEEPALIVE_IDLE_MS = 30000;
+
+/**
+ * Hard bound for a single (incomplete) response line in the receive buffer, in bytes. The command
+ * timeout only bounds an ACTIVE command — between commands, a broken server streaming bytes
+ * without a line break would grow the buffer without limit. No legitimate NUT line comes near this.
  */
 export const MAX_LINE_BYTES = 1_048_576;
+
+/**
+ * Hard bound for the complete answer to one multi-line command, in bytes. A server that streams
+ * valid lines without ever sending `END LIST` would otherwise grow the list buffer until the
+ * command timeout fires. The largest real dump in the NUT device-dump library (an Eaton ePDU with
+ * 581 variables) is below 40 KB.
+ */
+export const MAX_RESPONSE_BYTES = 4 * 1_048_576;
 
 /** NUT protocol error with error code (see types.ts:NUT_ERRORS for the documented set). */
 export class NutError extends Error {
   /**
    * @param code NUT error code (a server may send codes outside the documented set, so this is `string`)
    * @param message Optional custom message
+   * @param detail Extra text the server appended after the code (`ERR <code> [<extra>...]`)
    */
   constructor(
     public readonly code: string,
     message?: string,
+    public readonly detail?: string,
   ) {
-    super(message ?? `NUT error: ${code}`);
+    super(message ?? (detail ? `NUT error: ${code} (${detail})` : `NUT error: ${code}`));
     this.name = "NutError";
+  }
+}
+
+/**
+ * An argument the adapter was asked to put on the wire cannot be sent as it is — a name, a
+ * command parameter, a credential or a value the NUT protocol cannot carry. Nothing reached the
+ * server. Its own class so the caller reports it as the input problem it is, not as a connection
+ * failure or an unexpected error.
+ */
+export class NutInputError extends Error {
+  /** Stable code, like the protocol errors. */
+  public readonly code = "INVALID-INPUT";
+
+  /**
+   * @param message What is wrong with the input
+   */
+  constructor(message: string) {
+    super(message);
+    this.name = "NutInputError";
   }
 }
 
@@ -67,18 +104,39 @@ export class NutConnectionError extends Error {
 // Errors from connect()/STARTTLS that signal a TLS *configuration* problem (server offers
 // no TLS, or its certificate was rejected) rather than a transient network failure.
 const TLS_FATAL_ERROR_CODES = new Set<string>([
-  // NUT-level: the server cannot/does not start TLS
+  // NUT-level: the server cannot/does not start TLS. UNKNOWN-COMMAND is what a server answers
+  // that does not know STARTTLS at all (net-protocol.txt, "Error responses") — retrying cannot
+  // change that. The set is only consulted for a failed connect, where STARTTLS is the only
+  // command sent.
   "FEATURE-NOT-CONFIGURED",
   "FEATURE-NOT-SUPPORTED",
   "ALREADY-SSL-MODE",
+  "UNKNOWN-COMMAND",
   // Adapter-level: the configured CA file is missing/unreadable or not a PEM certificate
   "TLS-CA-UNREADABLE",
   "TLS-CA-INVALID",
-  // Node certificate-verification failures (only reachable with tlsRejectUnauthorized=true)
+  // Node certificate-verification failures (only reachable with tlsRejectUnauthorized=true).
+  // Node reports the OpenSSL X509 verification result by name (X509ErrorCode); every one of them
+  // is a certificate the configuration does not trust, none of them heals on a retry.
   "DEPTH_ZERO_SELF_SIGNED_CERT",
   "SELF_SIGNED_CERT_IN_CHAIN",
   "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+  "UNABLE_TO_GET_ISSUER_CERT",
+  "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+  "UNABLE_TO_DECRYPT_CERT_SIGNATURE",
+  "UNABLE_TO_DECODE_ISSUER_PUBLIC_KEY",
+  "CERT_SIGNATURE_FAILURE",
+  "CERT_NOT_YET_VALID",
   "CERT_HAS_EXPIRED",
+  "ERROR_IN_CERT_NOT_BEFORE_FIELD",
+  "ERROR_IN_CERT_NOT_AFTER_FIELD",
+  "CERT_CHAIN_TOO_LONG",
+  "CERT_REVOKED",
+  "INVALID_CA",
+  "PATH_LENGTH_EXCEEDED",
+  "INVALID_PURPOSE",
+  "CERT_UNTRUSTED",
+  "CERT_REJECTED",
   "ERR_TLS_CERT_ALTNAME_INVALID",
 ]);
 
@@ -149,7 +207,10 @@ export class NutClient {
   private queue: QueueEntry[] = [];
   private active: QueueEntry | null = null;
   private multiLineBuffer: string[] = [];
-  private multiLineExpectedEnd = "";
+  private multiLineBytes = 0;
+  /** Tokens of the `END LIST …` line that closes the active multi-line answer. */
+  private multiLineExpectedEnd: string[] = [];
+  private keepAliveTimer: unknown = null;
   private connected = false;
   /**
    * True once connect() resolved (TCP up AND, with TLS, the handshake done). `connected` alone
@@ -182,6 +243,7 @@ export class NutClient {
   private persistent = false;
   private onConnectHandler: (() => void) | null = null;
   private onFatalHandler: ((err: unknown) => void) | null = null;
+  private onDisconnectHandler: (() => void) | null = null;
 
   /**
    * @param host NUT server hostname or IP
@@ -222,6 +284,17 @@ export class NutClient {
   }
 
   /**
+   * Register a callback invoked the moment an established persistent connection drops — before
+   * the reconnect is scheduled, so the caller can mark its state unreachable right away instead
+   * of at the end of the next poll interval.
+   *
+   * @param handler Disconnect callback
+   */
+  setOnDisconnect(handler: () => void): void {
+    this.onDisconnectHandler = handler;
+  }
+
+  /**
    * Start the persistent runtime connection: connect now and keep retrying with exponential
    * backoff, reconnecting automatically on later drops. A fatal TLS-config error stops the
    * loop (onFatal). Use connect() directly for a one-shot (e.g. the connection test).
@@ -242,12 +315,46 @@ export class NutClient {
     if (this.destroyed) {
       return;
     }
+    // The backoff is NOT reset here: a server that accepts the TCP connection and drops it right
+    // away (a Docker port proxy in front of a upsd that is not listening, a crashing upsd under
+    // systemd) would otherwise be retried every second forever. It resets once the server has
+    // answered a command (see listUps), which is what "the connection works" means.
     this.connect()
       .then(() => {
-        this.reconnectAttempt = 0;
+        this.armKeepAlive();
         this.onConnectHandler?.();
       })
       .catch((err: unknown) => this.handleConnectFailure(err));
+  }
+
+  /**
+   * (Re)arm the idle timer of the persistent connection: after {@link KEEPALIVE_IDLE_MS} without a
+   * command, send `VER` so upsd does not drop the client (server/upsd.c:1647). Any answer — also
+   * an `ERR` from a server that does not know `VER` — refreshes upsd's timestamp and is ignored.
+   */
+  private armKeepAlive(): void {
+    this.stopKeepAlive();
+    if (!this.persistent || !this.ready || this.destroyed) {
+      return;
+    }
+    this.keepAliveTimer = this.setTimer(() => {
+      this.keepAliveTimer = null;
+      if (!this.ready || this.active || this.queue.length > 0) {
+        this.armKeepAlive();
+        return;
+      }
+      this.sendCommand("VER", false).catch((err: unknown) => {
+        this.log?.debug(`Keepalive VER: ${err instanceof Error ? err.message : String(err)}`);
+      });
+    }, KEEPALIVE_IDLE_MS);
+  }
+
+  /** Stop the idle timer (connection gone or client torn down). */
+  private stopKeepAlive(): void {
+    if (this.keepAliveTimer) {
+      this.clearTimer(this.keepAliveTimer);
+      this.keepAliveTimer = null;
+    }
   }
 
   /**
@@ -362,13 +469,16 @@ export class NutClient {
       const wasReady = this.ready;
       this.ready = false;
       this.connected = false;
+      this.stopKeepAlive();
       // Drain the WHOLE queue, not just the active command: a queued entry left behind would keep
       // a live command timer that fires later and tears down a subsequently-reconnected socket.
       this.rejectAll(new NutConnectionError("Connection closed"));
       // Only the persistent runtime connection auto-reconnects on a drop; a one-shot
       // connect() (e.g. the connection test) must not.
       if (wasReady && !this.destroyed && this.persistent) {
-        this.log?.warn(`Connection to NUT server ${this.host}:${this.port} lost`);
+        // A lost connection is a state (info.connection, info.reachable carry it), not a log event.
+        this.log?.debug(`Connection to NUT server ${this.host}:${this.port} lost`);
+        this.onDisconnectHandler?.();
         this.scheduleReconnect();
       }
     });
@@ -416,7 +526,11 @@ export class NutClient {
   private async startTls(): Promise<void> {
     const plain = this.socket as net.Socket;
     const ca = this.loadTlsCa();
-    await this.sendOk("STARTTLS"); // throws NutError on FEATURE-NOT-CONFIGURED/-SUPPORTED
+    // The one command allowed before the connection is ready. Every other command is refused
+    // until then (sendCommand), so nothing can be queued behind STARTTLS and written in plaintext
+    // the moment "OK STARTTLS" arrives — that would reach the server in place of the TLS
+    // ClientHello, break the handshake and, with an ERR_SSL_* code, stop the client for good.
+    await this.sendOk("STARTTLS", true); // throws NutError on FEATURE-NOT-CONFIGURED/-SUPPORTED
     // After "OK STARTTLS" the server begins TLS immediately — nothing plaintext may follow.
     plain.removeAllListeners("data");
     plain.removeAllListeners("error");
@@ -443,6 +557,7 @@ export class NutClient {
   /** Synchronous teardown — destroys socket, no LOGOUT sent. */
   destroy(): void {
     this.destroyed = true;
+    this.stopKeepAlive();
     if (this.reconnectTimer) {
       this.clearTimer(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -462,6 +577,7 @@ export class NutClient {
    */
   shutdown(): void {
     this.destroyed = true;
+    this.stopKeepAlive();
     if (this.reconnectTimer) {
       this.clearTimer(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -505,12 +621,16 @@ export class NutClient {
     }
     this.queue = [];
     this.multiLineBuffer = [];
-    this.multiLineExpectedEnd = "";
+    this.multiLineBytes = 0;
+    this.multiLineExpectedEnd = [];
   }
 
-  /** Whether the TCP connection is currently established. */
+  /**
+   * Whether the connection is usable: TCP up and, with TLS, the handshake done. A socket that is
+   * connected but still negotiating STARTTLS is not usable yet — commands are refused until then.
+   */
   get isConnected(): boolean {
-    return this.connected;
+    return this.ready;
   }
 
   /** Whether the connection is TLS-encrypted. */
@@ -525,12 +645,14 @@ export class NutClient {
    * the configured `desc`, or literally "Description unavailable"), but the other servers that
    * speak this protocol may send a bare `UPS <name>`, and a line the parser drops takes the whole
    * UPS with it.
+   *
+   * An answer to LIST UPS is also the adapter's proof that the connection works: it resets the
+   * reconnect backoff (see attemptConnect).
    */
-  listUps(): Promise<UpsInfo[]> {
-    return this.parseList("LIST UPS", /^UPS\s+(\S+)(?:\s+"((?:[^"\\]|\\.)*)")?/, m => ({
-      name: m[1],
-      description: m[2] === undefined ? "" : unescapeNut(m[2]),
-    }));
+  async listUps(): Promise<UpsInfo[]> {
+    const ups = await this.parseList("LIST UPS", "UPS", 2, t => ({ name: t[1], description: t[2] ?? "" }));
+    this.reconnectAttempt = 0;
+    return ups;
   }
 
   /**
@@ -543,10 +665,7 @@ export class NutClient {
     if (bad) {
       return Promise.reject(bad);
     }
-    return this.parseList(`LIST VAR ${ups}`, /^VAR\s+\S+\s+(\S+)\s+"((?:[^"\\]|\\.)*)"/, m => ({
-      name: m[1],
-      value: unescapeNut(m[2]),
-    }));
+    return this.parseList(`LIST VAR ${ups}`, "VAR", 4, t => ({ name: t[2], value: t[3] }));
   }
 
   /**
@@ -559,10 +678,7 @@ export class NutClient {
     if (bad) {
       return Promise.reject(bad);
     }
-    return this.parseList(`LIST RW ${ups}`, /^RW\s+\S+\s+(\S+)\s+"((?:[^"\\]|\\.)*)"/, m => ({
-      name: m[1],
-      value: unescapeNut(m[2]),
-    }));
+    return this.parseList(`LIST RW ${ups}`, "RW", 4, t => ({ name: t[2], value: t[3] }));
   }
 
   /**
@@ -575,7 +691,7 @@ export class NutClient {
     if (bad) {
       return Promise.reject(bad);
     }
-    return this.parseList(`LIST CMD ${ups}`, /^CMD\s+\S+\s+(\S+)/, m => ({ name: m[1] }));
+    return this.parseList(`LIST CMD ${ups}`, "CMD", 3, t => ({ name: t[2] }));
   }
 
   /**
@@ -589,13 +705,12 @@ export class NutClient {
     if (bad) {
       return Promise.reject(bad);
     }
-    return this.parseList(`LIST ENUM ${ups} ${varName}`, /^ENUM\s+\S+\s+\S+\s+"((?:[^"\\]|\\.)*)"/, m =>
-      unescapeNut(m[1]),
-    );
+    return this.parseList(`LIST ENUM ${ups} ${varName}`, "ENUM", 4, t => t[3]);
   }
 
   /**
-   * List range constraints for a variable.
+   * List range constraints for a variable. A variable can carry several disjoint ranges
+   * (net-protocol.txt, LIST RANGE: `"90" "100"` and `"102" "105"`).
    *
    * @param ups UPS name
    * @param varName Variable name
@@ -605,30 +720,87 @@ export class NutClient {
     if (bad) {
       return Promise.reject(bad);
     }
-    return this.parseList(
-      `LIST RANGE ${ups} ${varName}`,
-      /^RANGE\s+\S+\s+\S+\s+"((?:[^"\\]|\\.)*)"\s+"((?:[^"\\]|\\.)*)"/,
-      m => ({ min: unescapeNut(m[1]), max: unescapeNut(m[2]) }),
-    );
+    return this.parseList(`LIST RANGE ${ups} ${varName}`, "RANGE", 5, t => ({ min: t[3], max: t[4] }));
   }
 
   /**
-   * Generic LIST/multi-line parser — runs a regex per response line and maps matches.
+   * Generic LIST parser. Every answer line is split into tokens the way upsd itself parses a line
+   * (common/parseconf.c: whitespace separates, double quotes group, a backslash takes the next
+   * character literally), so a line reads the same whether a server quotes a name or not — upsd
+   * quotes only values and descriptions, the UniFi UPS firmware quotes every name
+   * (`VAR "myups" "battery.charge" 100`, home-assistant/core#154469).
    *
    * @param command The LIST command to send
-   * @param lineRegex Regex applied to each response line
-   * @param map Maps a matched line to a result item
+   * @param keyword First token of every answer line (UPS, VAR, RW, CMD, ENUM, RANGE)
+   * @param minTokens Tokens a line needs to be usable (the description of UPS is optional)
+   * @param map Maps the tokens of a matched line to a result item
    */
-  private async parseList<T>(command: string, lineRegex: RegExp, map: (m: RegExpExecArray) => T): Promise<T[]> {
+  private async parseList<T>(
+    command: string,
+    keyword: string,
+    minTokens: number,
+    map: (tokens: string[]) => T,
+  ): Promise<T[]> {
     const lines = await this.sendCommand(command, true);
     const result: T[] = [];
     for (const line of lines) {
-      const match = lineRegex.exec(line);
-      if (match) {
-        result.push(map(match));
+      const tokens = splitNutLine(line);
+      if (tokens[0] === keyword && tokens.length >= minTokens) {
+        result.push(map(tokens));
       }
     }
     return result;
+  }
+
+  /**
+   * Read one variable (`GET VAR`).
+   *
+   * @param ups UPS name
+   * @param varName Variable name
+   */
+  async getVar(ups: string, varName: string): Promise<string> {
+    return this.getQuoted("VAR", ups, varName, "variable name");
+  }
+
+  /**
+   * The server's own description of a variable (`GET DESC`, from its cmdvartab).
+   *
+   * @param ups UPS name
+   * @param varName Variable name
+   */
+  async getDesc(ups: string, varName: string): Promise<string> {
+    return this.getQuoted("DESC", ups, varName, "variable name");
+  }
+
+  /**
+   * The server's own description of an instant command (`GET CMDDESC`, from its cmdvartab).
+   *
+   * @param ups UPS name
+   * @param cmd Command name
+   */
+  async getCmdDesc(ups: string, cmd: string): Promise<string> {
+    return this.getQuoted("CMDDESC", ups, cmd, "command name");
+  }
+
+  /**
+   * `GET <what> <ups> <name>` → `<what> <ups> <name> "<text>"`.
+   *
+   * @param what VAR, DESC or CMDDESC
+   * @param ups UPS name
+   * @param name Variable or command name
+   * @param kind What the name is, for the input error
+   */
+  private async getQuoted(what: string, ups: string, name: string, kind: string): Promise<string> {
+    const bad = tokenError(ups, "UPS name") ?? tokenError(name, kind);
+    if (bad) {
+      throw bad;
+    }
+    const [line] = await this.sendCommand(`GET ${what} ${ups} ${name}`, false);
+    const tokens = splitNutLine(line);
+    if (tokens[0] !== what || tokens.length < 4) {
+      throw new NutError("UNEXPECTED-RESPONSE", `Unexpected answer to GET ${what} ${ups} ${name}: ${line}`);
+    }
+    return tokens[3];
   }
 
   /**
@@ -637,27 +809,64 @@ export class NutClient {
    * @param ups UPS name
    * @param varName Variable name
    * @param value New value
+   * @returns the TRACKING id when tracking is on (see setTracking), otherwise undefined
    */
-  async setVar(ups: string, varName: string, value: string): Promise<void> {
-    const bad = tokenError(ups, "UPS name") ?? tokenError(varName, "variable name");
+  async setVar(ups: string, varName: string, value: string): Promise<string | undefined> {
+    const bad = tokenError(ups, "UPS name") ?? tokenError(varName, "variable name") ?? valueError(value);
     if (bad) {
       throw bad;
     }
-    await this.sendOk(`SET VAR ${ups} ${varName} "${escapeNut(value)}"`);
+    return this.sendOk(`SET VAR ${ups} ${varName} "${escapeNut(value)}"`);
   }
 
   /**
-   * Execute an instant command.
+   * Execute an instant command, optionally with its parameter (`INSTCMD <ups> <cmd> [<param>]`,
+   * net-protocol.txt; a delay for `load.off.delay`, a duration for `test.battery.start` on some
+   * drivers). Like upscmd (clients/upscmd.c:190) the parameter goes out unquoted, so it must be one
+   * clean token — upsd only takes it when exactly three arguments arrive (server/netinstcmd.c:125).
    *
    * @param ups UPS name
    * @param cmd Command name
+   * @param param Optional command parameter
+   * @returns the TRACKING id when tracking is on (see setTracking), otherwise undefined
    */
-  async instCmd(ups: string, cmd: string): Promise<void> {
-    const bad = tokenError(ups, "UPS name") ?? tokenError(cmd, "command name");
+  async instCmd(ups: string, cmd: string, param?: string): Promise<string | undefined> {
+    const bad =
+      tokenError(ups, "UPS name") ??
+      tokenError(cmd, "command name") ??
+      (param === undefined ? null : tokenError(param, "command parameter"));
     if (bad) {
       throw bad;
     }
-    await this.sendOk(`INSTCMD ${ups} ${cmd}`);
+    return this.sendOk(param === undefined ? `INSTCMD ${ups} ${cmd}` : `INSTCMD ${ups} ${cmd} ${param}`);
+  }
+
+  /**
+   * Switch TRACKING on or off for this connection (`SET TRACKING ON|OFF`). With it on, upsd answers
+   * `OK TRACKING <id>` to SET VAR and INSTCMD, and `GET TRACKING <id>` tells whether the DRIVER
+   * carried the request out — a plain `OK` only means upsd handed it over (server/netinstcmd.c,
+   * netset.c). The setting belongs to the connection and needs USERNAME/PASSWORD first
+   * (`SET` is a FLAG_USER command, server/netcmds.h:73).
+   *
+   * @param on Whether to enable tracking
+   */
+  async setTracking(on: boolean): Promise<void> {
+    await this.sendOk(`SET TRACKING ${on ? "ON" : "OFF"}`);
+  }
+
+  /**
+   * Execution status of a tracked SET VAR/INSTCMD: `PENDING` or `SUCCESS`; a failure arrives as an
+   * `ERR` (INVALID-ARGUMENT, FAILED, or UNKNOWN — the last one also for an id upsd no longer keeps).
+   *
+   * @param id Tracking id from `OK TRACKING <id>`
+   */
+  async getTracking(id: string): Promise<string> {
+    const bad = tokenError(id, "tracking id");
+    if (bad) {
+      throw bad;
+    }
+    const [line] = await this.sendCommand(`GET TRACKING ${id}`, false);
+    return line.trim();
   }
 
   /**
@@ -715,15 +924,19 @@ export class NutClient {
    * login, a write or a TLS upgrade that did not happen.
    *
    * @param command The protocol line to send
+   * @param beforeReady Only for STARTTLS: allowed while the connection is still being set up
+   * @returns the id of `OK TRACKING <id>`, otherwise undefined
    */
-  private async sendOk(command: string): Promise<void> {
-    const [line] = await this.sendCommand(command, false);
+  private async sendOk(command: string, beforeReady = false): Promise<string | undefined> {
+    const [line] = await this.sendCommand(command, false, beforeReady);
     if (!/^OK(\s|$)/.test(line)) {
       throw new NutError("UNEXPECTED-RESPONSE", `Unexpected answer to ${redactForLog(command)}: ${line}`);
     }
+    const tracking = /^OK TRACKING (\S+)/.exec(line);
+    return tracking ? tracking[1] : undefined;
   }
 
-  private sendCommand(command: string, multiLine: boolean): Promise<string[]> {
+  private sendCommand(command: string, multiLine: boolean, beforeReady = false): Promise<string[]> {
     return new Promise<string[]>((resolve, reject) => {
       // A NUT command is exactly one protocol line — guard the wire against a stray line break in
       // any argument. SET VAR values are already safe on their own: they go out quoted and
@@ -733,10 +946,10 @@ export class NutClient {
       // trailing newline) would otherwise split into a bogus second command line and desync auth.
       // Reject before anything reaches the wire; no real NUT argument contains a line break.
       if (/[\r\n]/.test(command)) {
-        reject(new Error("NUT command must not contain line breaks"));
+        reject(new NutInputError("NUT command must not contain line breaks"));
         return;
       }
-      if (!this.connected || !this.socket) {
+      if (!this.socket || !(beforeReady ? this.connected : this.ready)) {
         reject(new NutConnectionError("Not connected"));
         return;
       }
@@ -765,12 +978,22 @@ export class NutClient {
     if (this.active?.command === command) {
       this.active = null;
     }
-    // Drop the socket — reflect it synchronously so callers see the desync immediately and the
-    // async 'close' handler sees wasConnected=false (no double-schedule). cancelAll() drains the
-    // rest of the queue; scheduleReconnect() brings the connection back on a clean stream.
+    this.dropConnection(new NutConnectionError("Client cancelled"));
+  }
+
+  /**
+   * Tear down a connection whose stream can no longer be trusted (timeout desync, oversized answer)
+   * and let the persistent loop reconnect on a clean stream. Reflected synchronously so callers see
+   * it at once and the async 'close' handler sees ready=false (no double-schedule).
+   *
+   * @param reason Rejection handed to every pending command
+   */
+  private dropConnection(reason: Error): void {
     this.connected = false;
     this.ready = false;
-    this.cancelAll();
+    this.stopKeepAlive();
+    this.buffer = "";
+    this.rejectAll(reason);
     this.socket?.destroy();
     this.scheduleReconnect();
   }
@@ -797,11 +1020,13 @@ export class NutClient {
 
     if (entry.multiLine) {
       this.multiLineBuffer = [];
-      const query = entry.command.replace(/^LIST\s+/, "");
-      this.multiLineExpectedEnd = `END LIST ${query}`;
+      this.multiLineBytes = 0;
+      this.multiLineExpectedEnd = ["END", ...splitNutLine(entry.command)];
     }
 
     this.socket?.write(`${entry.command}\n`);
+    // Every command sent restarts upsd's idle clock, so it restarts ours too.
+    this.armKeepAlive();
   }
 
   private onData(data: string): void {
@@ -812,19 +1037,18 @@ export class NutClient {
     for (const line of lines) {
       // NUT uses LF; tolerate CRLF from non-conformant servers.
       this.processLine(line.endsWith("\r") ? line.slice(0, -1) : line);
+      if (!this.ready && !this.connected) {
+        // processLine dropped the connection (oversized answer) — the rest is from a dead stream.
+        return;
+      }
     }
 
     // The remainder is one incomplete line. Past the cap it can only be a broken (or hostile)
     // stream — treat it like a timeout desync: drop the connection so the buffer cannot grow
     // without bound; the persistent loop reconnects on a clean stream.
-    if (this.buffer.length > MAX_LINE_BYTES) {
+    if (Buffer.byteLength(this.buffer, "utf8") > MAX_LINE_BYTES) {
       this.log?.warn(`NUT response line exceeded ${MAX_LINE_BYTES} bytes — dropping the connection`);
-      this.buffer = "";
-      this.connected = false;
-      this.ready = false;
-      this.rejectAll(new Error("NUT response line exceeded the size limit"));
-      this.socket?.destroy();
-      this.scheduleReconnect();
+      this.dropConnection(new NutConnectionError("NUT response line exceeded the size limit"));
     }
   }
 
@@ -834,14 +1058,21 @@ export class NutClient {
       return;
     }
 
-    if (line.startsWith("ERR ")) {
-      const code = line.slice(4).trim();
+    // `ERR <message> [<extra>...]` — <message> is always exactly one token (net-protocol.txt,
+    // "Error responses"); anything after it is extra information, not part of the code. A bare
+    // `ERR` carries no code at all.
+    if (line === "ERR" || line.startsWith("ERR ")) {
+      const rest = line.slice(3).trim();
+      const space = rest.search(/\s/);
+      const code = space < 0 ? rest || "UNKNOWN" : rest.slice(0, space);
+      const detail = space < 0 ? undefined : rest.slice(space).trim() || undefined;
       this.clearTimer(this.active.timer);
       const entry = this.active;
       this.active = null;
       this.multiLineBuffer = [];
-      this.multiLineExpectedEnd = "";
-      entry.reject(new NutError(code));
+      this.multiLineBytes = 0;
+      this.multiLineExpectedEnd = [];
+      entry.reject(new NutError(code, undefined, detail));
       this.processQueue();
       return;
     }
@@ -850,15 +1081,24 @@ export class NutClient {
       if (line.startsWith("BEGIN LIST ")) {
         return;
       }
-      if (line === this.multiLineExpectedEnd) {
+      if (sameTokens(splitNutLine(line), this.multiLineExpectedEnd)) {
         this.clearTimer(this.active.timer);
         const entry = this.active;
         const result = [...this.multiLineBuffer];
         this.active = null;
         this.multiLineBuffer = [];
-        this.multiLineExpectedEnd = "";
+        this.multiLineBytes = 0;
+        this.multiLineExpectedEnd = [];
         entry.resolve(result);
         this.processQueue();
+        return;
+      }
+      this.multiLineBytes += Buffer.byteLength(line, "utf8") + 1;
+      if (this.multiLineBytes > MAX_RESPONSE_BYTES) {
+        this.log?.warn(
+          `NUT answer to ${redactForLog(this.active.command)} exceeded ${MAX_RESPONSE_BYTES} bytes without END LIST — dropping the connection`,
+        );
+        this.dropConnection(new NutConnectionError("NUT answer exceeded the size limit"));
         return;
       }
       this.multiLineBuffer.push(line);
@@ -892,18 +1132,90 @@ export class NutClient {
 }
 
 /**
+ * Split one protocol line into tokens exactly as upsd reads a line (common/parseconf.c): whitespace
+ * separates tokens, double quotes group a token that may contain whitespace, and a backslash takes
+ * the next character literally — in and outside quotes (`\"`, `\\`, `\#`: upsd escapes `#`, `\` and
+ * `"` in every value it sends, PCONF_ESCAPE in parseconf.c:596). Quoting is thus transparent: `VAR
+ * ups x "1"` and `VAR "ups" "x" 1` give the same tokens.
+ *
+ * @param line One protocol line
+ */
+export function splitNutLine(line: string): string[] {
+  const tokens: string[] = [];
+  let current = "";
+  let inToken = false;
+  let quoted = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === "\\" && i + 1 < line.length) {
+      current += line[++i];
+      inToken = true;
+      continue;
+    }
+    if (ch === '"') {
+      quoted = !quoted;
+      inToken = true;
+      continue;
+    }
+    if (!quoted && /\s/.test(ch)) {
+      if (inToken) {
+        tokens.push(current);
+        current = "";
+        inToken = false;
+      }
+      continue;
+    }
+    current += ch;
+    inToken = true;
+  }
+  if (inToken) {
+    tokens.push(current);
+  }
+  return tokens;
+}
+
+/**
+ * Whether two token lists are equal.
+ *
+ * @param a First list
+ * @param b Second list
+ */
+function sameTokens(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((t, i) => t === b[i]);
+}
+
+/**
  * NUT command arguments are whitespace-separated, unquoted tokens (only the SET VAR value is
  * quoted). A name carrying a space, a quote or a backslash would re-split or re-quote the line
- * on the server. Variable and command names come from the object tree, where a user can create
- * states by hand — refuse anything that is not one clean token before it reaches the wire.
+ * on the server; `#` starts a comment there and cuts the line short (common/parseconf.c:336), and
+ * `=` becomes a token of its own (:355). Variable and command names come from the object tree, and
+ * a command parameter from the user — refuse anything that is not one clean token before it
+ * reaches the wire.
  *
  * @param value The argument about to be placed on the command line
  * @param what What it is, for the error message
  * @returns the error to reject with, or null when the token is clean
  */
-function tokenError(value: string, what: string): Error | null {
-  if (value.length === 0 || /[\s"\\]/.test(value)) {
-    return new Error(`Invalid NUT ${what}: ${JSON.stringify(value)}`);
+function tokenError(value: string, what: string): NutInputError | null {
+  if (value.length === 0 || /[\s"\\#=]/.test(value)) {
+    return new NutInputError(`Invalid NUT ${what}: ${JSON.stringify(value)}`);
+  }
+  return null;
+}
+
+/**
+ * The quoted SET VAR value: upsd drops every byte outside 0x20–0x7F without a word
+ * (common/parseconf.c:184 `addchar`, CVE-2012-2944), so `Büro` would be stored as `Bro` while the
+ * adapter reported `Büro` as set. Refuse it instead.
+ *
+ * @param value The value about to be sent
+ * @returns the error to reject with, or null when upsd stores the value as sent
+ */
+function valueError(value: string): NutInputError | null {
+  if (/[^\x20-\x7f]/.test(value)) {
+    return new NutInputError(
+      `The value ${JSON.stringify(value)} contains characters the NUT server cannot store (only printable ASCII is kept)`,
+    );
   }
   return null;
 }
@@ -914,33 +1226,68 @@ function tokenError(value: string, what: string): Error | null {
  * ends up in the log and in the admin's connection-test answer, so it says WHAT is wrong, not what
  * was entered.
  *
+ * A `#` is deliberately NOT refused: upsd cuts an unquoted word at `#` (parseconf.c:236/336), but it
+ * reads its own upsd.users with the same parser, and upsmon sends the password the same way
+ * (clients/upsmon.c:585) — an installation with `#` in a password works today. {@link
+ * credentialHashWarning} lets the caller say so once instead.
+ *
  * @param value The credential about to be placed on the command line
  * @param what "username" or "password", for the message
  * @returns the error to throw with, or null when the credential can go on the wire
  */
-function credentialError(value: string, what: string): Error | null {
+function credentialError(value: string, what: string): NutInputError | null {
   if (value.length === 0) {
-    return new Error(`The NUT ${what} is empty`);
+    return new NutInputError(`The NUT ${what} is empty`);
   }
   if (/\s/.test(value)) {
-    return new Error(
+    return new NutInputError(
       `The NUT ${what} contains a space (or tab) — the NUT protocol cannot carry one: upsd reads the rest as a second argument and answers ERR INVALID-ARGUMENT. Choose a ${what} without whitespace in upsd.users.`,
     );
   }
   if (/["\\]/.test(value)) {
-    return new Error(
+    return new NutInputError(
       `The NUT ${what} contains a quote or a backslash — the NUT protocol cannot carry those unquoted; the server would read a different value than you entered. Choose a ${what} without " and \\ in upsd.users.`,
+    );
+  }
+  if (value.includes("=")) {
+    return new NutInputError(
+      `The NUT ${what} contains "=" — upsd reads it as a separate argument and answers ERR INVALID-ARGUMENT. Choose a ${what} without "=" in upsd.users.`,
+    );
+  }
+  if (/[^\x20-\x7f]/.test(value)) {
+    return new NutInputError(
+      `The NUT ${what} contains characters outside printable ASCII — upsd drops them, so it would check a different ${what}. Choose a ${what} of plain ASCII characters in upsd.users.`,
     );
   }
   return null;
 }
 
-function unescapeNut(s: string): string {
-  return s.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+/**
+ * Whether a credential contains `#`, which upsd treats as the start of a comment: everything after
+ * it is ignored — on the wire and in upsd.users alike, so the login usually still works. Worth one
+ * line in the log, never a refusal (see credentialError).
+ *
+ * @param username NUT username
+ * @param password NUT password
+ * @returns the warning text, or null
+ */
+export function credentialHashWarning(username: string, password: string): string | null {
+  const which = [username.includes("#") ? "username" : "", password.includes("#") ? "password" : ""].filter(Boolean);
+  if (which.length === 0) {
+    return null;
+  }
+  return `The NUT ${which.join(" and ")} contains "#" — upsd ignores everything from "#" on, in upsd.users as on the wire, so only the part before it is checked`;
 }
 
+/**
+ * Encode a SET VAR value the way upsd's own clients do (pconf_encode, common/parseconf.c:596):
+ * backslash, double quote and `#` are escaped. An unescaped `#` inside quotes is a parse error on
+ * the server — it answers nothing, and the command runs into its timeout.
+ *
+ * @param s Raw value
+ */
 function escapeNut(s: string): string {
-  return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  return s.replace(/[\\"#]/g, ch => `\\${ch}`);
 }
 
 /**

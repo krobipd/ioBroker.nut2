@@ -3,7 +3,20 @@ import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 import * as tls from "node:tls";
-import { authFailureText, isTlsConfigError, MAX_LINE_BYTES, NutClient, NutError, NutTimeoutError } from "./nut-client";
+import {
+  authFailureText,
+  credentialHashWarning,
+  isTlsConfigError,
+  KEEPALIVE_IDLE_MS,
+  MAX_LINE_BYTES,
+  MAX_RESPONSE_BYTES,
+  NutClient,
+  NutConnectionError,
+  NutError,
+  NutInputError,
+  NutTimeoutError,
+  splitNutLine,
+} from "./nut-client";
 
 // Throwaway self-signed cert+key (CN=localhost, 10y) for the STARTTLS handshake test only.
 // The client connects with tlsRejectUnauthorized:false, so a self-signed cert is accepted.
@@ -200,7 +213,10 @@ function createMockNutServer(handler?: MockHandler): {
 // A mock server that answers STARTTLS with "OK STARTTLS" and then completes a REAL TLS
 // handshake on its side — so the client's plaintext→TLS upgrade is exercised end to end
 // (a mock that only checks the STARTTLS line was sent would never trip the upgrade trap).
-function createStartTlsMockServer(handler: MockHandler): {
+function createStartTlsMockServer(
+  handler: MockHandler,
+  identity: { cert: string; key: string } = { cert: TEST_TLS_CERT, key: TEST_TLS_KEY },
+): {
   start: () => Promise<number>;
   stop: () => Promise<void>;
   commands: string[];
@@ -248,11 +264,11 @@ function createStartTlsMockServer(handler: MockHandler): {
           // Upgrade THIS side to a TLS server socket — drives a genuine handshake.
           const tlsSocket = new tls.TLSSocket(socket, {
             isServer: true,
-            secureContext: tls.createSecureContext({ cert: TEST_TLS_CERT, key: TEST_TLS_KEY }),
+            secureContext: tls.createSecureContext(identity),
             // Record the SNI the client offered — RFC 6066 forbids an IP literal there.
             SNICallback: (name, cb) => {
               sniNames.push(name);
-              cb(null, tls.createSecureContext({ cert: TEST_TLS_CERT, key: TEST_TLS_KEY }));
+              cb(null, tls.createSecureContext(identity));
             },
           });
           connections.add(tlsSocket);
@@ -1930,7 +1946,8 @@ describe("OK verification — a confirmation command is only successful on an OK
     try {
       const client = new NutClient("127.0.0.1", port);
       await client.connect();
-      await expect(client.instCmd("ups0", "beeper.enable")).resolves.toBeUndefined();
+      // The trailer is not only accepted, its id is handed back for GET TRACKING.
+      await expect(client.instCmd("ups0", "beeper.enable")).resolves.toBe("4711");
       client.destroy();
     } finally {
       await mock.stop();
@@ -2153,5 +2170,567 @@ describe("authFailureText", () => {
     expect(authFailureText(new NutError("DATA-STALE"))).toBeNull();
     expect(authFailureText(new Error("ACCESS-DENIED"))).toBeNull();
     expect(authFailureText("ACCESS-DENIED")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Audit 2026-09-25 — protocol client (plan package A)
+// ---------------------------------------------------------------------------
+
+/** Collects every timer the client arms, so a test can fire one on purpose. */
+function recordingTimers(): {
+  armed: { cb: () => void; ms: number; cleared: boolean }[];
+  setTimer: (cb: () => void, ms: number) => unknown;
+  clearTimer: (h: unknown) => void;
+} {
+  const armed: { cb: () => void; ms: number; cleared: boolean }[] = [];
+  return {
+    armed,
+    setTimer: (cb, ms) => {
+      const entry = { cb, ms, cleared: false };
+      armed.push(entry);
+      return entry;
+    },
+    clearTimer: h => {
+      if (h && typeof h === "object") {
+        (h as { cleared: boolean }).cleared = true;
+      }
+    },
+  };
+}
+
+describe("A1 keepalive — upsd drops a client after 60 s without a command", () => {
+  it("sends VER once the persistent connection has been idle for KEEPALIVE_IDLE_MS", async () => {
+    const mock = createMockNutServer(cmd =>
+      cmd === "VER" ? "Network UPS Tools upsd 2.8.5" : cmd === "LIST UPS" ? ["BEGIN LIST UPS", "END LIST UPS"] : "OK",
+    );
+    const port = await mock.start();
+    const timers = recordingTimers();
+    const client = new NutClient("127.0.0.1", port, { setTimer: timers.setTimer, clearTimer: timers.clearTimer });
+    try {
+      const connected = new Promise<void>(resolve => client.setOnConnect(resolve));
+      client.start();
+      await connected;
+      const idle = timers.armed.filter(t => t.ms === KEEPALIVE_IDLE_MS && !t.cleared);
+      expect(idle).toHaveLength(1);
+      idle[0].cb();
+      await vi.waitFor(() => expect(mock.commands).toContain("VER"));
+    } finally {
+      client.destroy();
+      await mock.stop();
+    }
+  });
+
+  it("restarts the idle clock with every command and ignores an ERR answer to VER", async () => {
+    const mock = createMockNutServer(cmd =>
+      cmd === "VER" ? "ERR UNKNOWN-COMMAND" : ["BEGIN LIST UPS", "END LIST UPS"],
+    );
+    const port = await mock.start();
+    const timers = recordingTimers();
+    const debugs: string[] = [];
+    const client = new NutClient("127.0.0.1", port, {
+      setTimer: timers.setTimer,
+      clearTimer: timers.clearTimer,
+      logger: { debug: m => debugs.push(m), info: () => {}, warn: () => {} },
+    });
+    try {
+      const connected = new Promise<void>(resolve => client.setOnConnect(resolve));
+      client.start();
+      await connected;
+      await client.listUps();
+      const idle = timers.armed.filter(t => t.ms === KEEPALIVE_IDLE_MS);
+      expect(idle.length).toBeGreaterThanOrEqual(2);
+      expect(idle.filter(t => !t.cleared)).toHaveLength(1);
+      idle.find(t => !t.cleared)!.cb();
+      await vi.waitFor(() => expect(debugs.some(d => d.startsWith("Keepalive VER"))).toBe(true));
+    } finally {
+      client.destroy();
+      await mock.stop();
+    }
+  });
+
+  it("does not arm a keepalive on a one-shot connect()", async () => {
+    const mock = createMockNutServer();
+    const port = await mock.start();
+    const timers = recordingTimers();
+    const client = new NutClient("127.0.0.1", port, { setTimer: timers.setTimer, clearTimer: timers.clearTimer });
+    try {
+      await client.connect();
+      await client.listUps();
+      expect(timers.armed.some(t => t.ms === KEEPALIVE_IDLE_MS)).toBe(false);
+    } finally {
+      client.destroy();
+      await mock.stop();
+    }
+  });
+});
+
+describe("A2 backoff — a server that accepts and drops at once is not hammered every second", () => {
+  it("grows the reconnect delay while no command ever gets an answer, without a warn line", async () => {
+    const server = net.createServer(sock => {
+      sock.on("error", () => {});
+      sock.destroy();
+    });
+    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as net.AddressInfo).port;
+    const delays: number[] = [];
+    const warns: string[] = [];
+    const client = new NutClient("127.0.0.1", port, {
+      commandTimeout: 2000,
+      // Reconnect delays run at once so the test does not wait for them; connect deadlines stay real.
+      setTimer: (cb, ms) => (ms === 2000 ? globalThis.setTimeout(cb, ms) : globalThis.setTimeout(cb, 5)),
+      clearTimer: h => globalThis.clearTimeout(h as ReturnType<typeof setTimeout>),
+      logger: {
+        debug: m => {
+          const d = /^Reconnecting in (\d+)ms/.exec(m);
+          if (d) {
+            delays.push(Number(d[1]));
+          }
+        },
+        info: () => {},
+        warn: m => warns.push(m),
+      },
+    });
+    client.setOnConnect(() => {
+      client.listUps().catch(() => {});
+    });
+    try {
+      client.start();
+      await vi.waitFor(() => expect(delays.length).toBeGreaterThanOrEqual(4), { timeout: 5000 });
+      expect(delays.slice(0, 4)).toEqual([1000, 2000, 4000, 8000]);
+      expect(warns).toEqual([]);
+    } finally {
+      client.destroy();
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
+  });
+
+  it("resets the backoff once LIST UPS has been answered", async () => {
+    const mock = createMockNutServer();
+    const port = await mock.start();
+    const delays: number[] = [];
+    const client = new NutClient("127.0.0.1", port, {
+      setTimer: (cb, ms) => globalThis.setTimeout(cb, ms >= 1000 && ms <= 60000 && ms !== 5000 ? 5 : ms),
+      clearTimer: h => globalThis.clearTimeout(h as ReturnType<typeof setTimeout>),
+      logger: {
+        debug: m => {
+          const d = /^Reconnecting in (\d+)ms/.exec(m);
+          if (d) {
+            delays.push(Number(d[1]));
+          }
+        },
+        info: () => {},
+        warn: () => {},
+      },
+    });
+    let connects = 0;
+    client.setOnConnect(() => {
+      connects++;
+      void client
+        .listUps()
+        .then(() => mock.disconnectAll())
+        .catch(() => {});
+    });
+    try {
+      client.start();
+      await vi.waitFor(() => expect(connects).toBeGreaterThanOrEqual(3), { timeout: 5000 });
+      // Every drop follows an answered LIST UPS, so every reconnect is the first attempt again.
+      expect(delays.every(d => d === 1000)).toBe(true);
+    } finally {
+      client.destroy();
+      await mock.stop();
+    }
+  });
+
+  it("reports an established connection that drops through onDisconnect", async () => {
+    const mock = createMockNutServer();
+    const port = await mock.start();
+    const client = new NutClient("127.0.0.1", port);
+    const dropped = vi.fn();
+    client.setOnDisconnect(dropped);
+    try {
+      const connected = new Promise<void>(resolve => client.setOnConnect(resolve));
+      client.start();
+      await connected;
+      // The client's connect event can run before the server registered the socket; one answered
+      // command proves the server holds it, so disconnectAll really drops this connection.
+      await client.listUps();
+      mock.disconnectAll();
+      await vi.waitFor(() => expect(dropped).toHaveBeenCalledTimes(1));
+    } finally {
+      client.destroy();
+      await mock.stop();
+    }
+  });
+});
+
+describe('A3 escaping — upsd escapes #, \\ and " in every value (PCONF_ESCAPE)', () => {
+  it("decodes \\# in a description and a value", async () => {
+    const mock = createMockNutServer(cmd =>
+      cmd === "LIST UPS"
+        ? ["BEGIN LIST UPS", 'UPS ups0 "Rack \\#2"', "END LIST UPS"]
+        : [
+            "BEGIN LIST VAR ups0",
+            'VAR ups0 outlet.3.desc "Outlet \\#3"',
+            'VAR ups0 ups.id "a\\\\"',
+            "END LIST VAR ups0",
+          ],
+    );
+    const port = await mock.start();
+    const client = new NutClient("127.0.0.1", port);
+    try {
+      await client.connect();
+      expect(await client.listUps()).toEqual([{ name: "ups0", description: "Rack #2" }]);
+      expect(await client.listVar("ups0")).toEqual([
+        { name: "outlet.3.desc", value: "Outlet #3" },
+        { name: "ups.id", value: "a\\" },
+      ]);
+    } finally {
+      client.destroy();
+      await mock.stop();
+    }
+  });
+
+  it("escapes # in a SET VAR value — unescaped it is a parse error upsd never answers", async () => {
+    const mock = createMockNutServer(() => "OK");
+    const port = await mock.start();
+    const client = new NutClient("127.0.0.1", port);
+    try {
+      await client.connect();
+      await client.setVar("ups0", "ups.id", 'USV #1 "a\\b"');
+      expect(mock.commands).toContain('SET VAR ups0 ups.id "USV \\#1 \\"a\\\\b\\""');
+    } finally {
+      client.destroy();
+      await mock.stop();
+    }
+  });
+});
+
+describe("A4 ERR <code> [<extra>] — the code is one token", () => {
+  it("takes the first token as code and keeps the rest as detail", async () => {
+    const mock = createMockNutServer(cmd => (cmd.startsWith("LOGIN") ? 'ERR ACCESS-DENIED "SSL trust failed"' : "OK"));
+    const port = await mock.start();
+    const client = new NutClient("127.0.0.1", port);
+    try {
+      await client.connect();
+      const err = await client.login("ups0").catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(NutError);
+      expect((err as NutError).code).toBe("ACCESS-DENIED");
+      expect((err as NutError).detail).toBe('"SSL trust failed"');
+      expect(authFailureText(err)).not.toBeNull();
+    } finally {
+      client.destroy();
+      await mock.stop();
+    }
+  });
+
+  it("maps a bare ERR to UNKNOWN", async () => {
+    const mock = createMockNutServer(() => "ERR");
+    const port = await mock.start();
+    const client = new NutClient("127.0.0.1", port);
+    try {
+      await client.connect();
+      await expect(client.instCmd("ups0", "beeper.enable")).rejects.toMatchObject({ code: "UNKNOWN" });
+    } finally {
+      client.destroy();
+      await mock.stop();
+    }
+  });
+});
+
+describe("A5 STARTTLS window — nothing but STARTTLS before the connection is ready", () => {
+  it("refuses a command while STARTTLS is pending and never writes it in plaintext", async () => {
+    const mock = createMockNutServer(cmd => (cmd === "STARTTLS" ? null : "OK"));
+    const port = await mock.start();
+    const client = new NutClient("127.0.0.1", port, { useTls: true, commandTimeout: 3000 });
+    const pending = client.connect().catch(() => {});
+    try {
+      await vi.waitFor(() => expect(mock.commands).toContain("STARTTLS"));
+      expect(client.isConnected).toBe(false);
+      await expect(client.listUps()).rejects.toThrow("Not connected");
+      expect(mock.commands).toEqual(["STARTTLS"]);
+    } finally {
+      client.destroy();
+      await pending;
+      await mock.stop();
+    }
+  });
+});
+
+describe("A6 TLS configuration errors — certificate problems do not heal on a retry", () => {
+  it.each([
+    "UNABLE_TO_GET_ISSUER_CERT",
+    "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+    "UNABLE_TO_DECRYPT_CERT_SIGNATURE",
+    "UNABLE_TO_DECODE_ISSUER_PUBLIC_KEY",
+    "CERT_SIGNATURE_FAILURE",
+    "CERT_NOT_YET_VALID",
+    "ERROR_IN_CERT_NOT_BEFORE_FIELD",
+    "ERROR_IN_CERT_NOT_AFTER_FIELD",
+    "CERT_CHAIN_TOO_LONG",
+    "CERT_REVOKED",
+    "INVALID_CA",
+    "PATH_LENGTH_EXCEEDED",
+    "INVALID_PURPOSE",
+    "CERT_UNTRUSTED",
+    "CERT_REJECTED",
+  ])("treats Node's %s as fatal", code => {
+    expect(isTlsConfigError(Object.assign(new Error(code), { code }))).toBe(true);
+  });
+
+  it("treats a server that does not know STARTTLS as fatal", () => {
+    expect(isTlsConfigError(new NutError("UNKNOWN-COMMAND"))).toBe(true);
+  });
+
+  it("stops the persistent loop when the certificate chain cannot be completed", async () => {
+    // test/fixtures/tls: a leaf signed by an intermediate, the server sends both; the intermediate
+    // is signed by a root the client does not trust (other-ca.pem is an unrelated CA). Measured
+    // with Node 22: the handshake fails with UNABLE_TO_GET_ISSUER_CERT_LOCALLY — a private CA
+    // without its CA file configured. Before the fix that code was not fatal: the client retried
+    // silently forever and the reason stayed on debug.
+    const fixtures = path.join(process.cwd(), "test", "fixtures", "tls");
+    const mock = createStartTlsMockServer(() => "OK", {
+      cert: fs.readFileSync(path.join(fixtures, "chain.pem"), "utf8"),
+      key: fs.readFileSync(path.join(fixtures, "chain.key"), "utf8"),
+    });
+    const port = await mock.start();
+    const fatal = vi.fn();
+    const client = new NutClient("localhost", port, {
+      useTls: true,
+      tlsRejectUnauthorized: true,
+      tlsCaFile: path.join(fixtures, "other-ca.pem"),
+    });
+    client.setOnFatal(fatal);
+    try {
+      client.start();
+      await vi.waitFor(() => expect(fatal).toHaveBeenCalledTimes(1), { timeout: 5000 });
+      expect((fatal.mock.calls[0][0] as { code?: string }).code).toBe("UNABLE_TO_GET_ISSUER_CERT_LOCALLY");
+    } finally {
+      client.destroy();
+      await mock.stop();
+    }
+  });
+});
+
+describe("A7 size limits — counted in bytes, also for a whole answer", () => {
+  it("drops a line that exceeds MAX_LINE_BYTES in bytes even when it has fewer characters", async () => {
+    const big = "ä".repeat(MAX_LINE_BYTES / 2 + 10);
+    const server = net.createServer(sock => {
+      sock.on("error", () => {}); // the client drops the connection mid-stream on purpose
+      sock.on("data", () => sock.write(big));
+    });
+    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+    const bigPort = (server.address() as net.AddressInfo).port;
+    const client = new NutClient("127.0.0.1", bigPort, { commandTimeout: 3000 });
+    try {
+      await client.connect();
+      await expect(client.listUps()).rejects.toBeInstanceOf(NutConnectionError);
+    } finally {
+      client.destroy();
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
+  });
+
+  it("drops an answer that grows past MAX_RESPONSE_BYTES without END LIST", async () => {
+    const line = `VAR ups0 x "${"y".repeat(1000)}"`;
+    const server = net.createServer(sock => {
+      sock.on("error", () => {}); // the client drops the connection mid-stream on purpose
+      sock.on("data", () => {
+        sock.write("BEGIN LIST VAR ups0\n");
+        const chunk = `${line}\n`.repeat(100);
+        for (let i = 0; i < Math.ceil(MAX_RESPONSE_BYTES / chunk.length) + 2; i++) {
+          sock.write(chunk);
+        }
+      });
+    });
+    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+    const port = (server.address() as net.AddressInfo).port;
+    const client = new NutClient("127.0.0.1", port, { commandTimeout: 10000 });
+    try {
+      await client.connect();
+      await expect(client.listVar("ups0")).rejects.toBeInstanceOf(NutConnectionError);
+    } finally {
+      client.destroy();
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
+  });
+});
+
+describe("A8 token guard — #, = and whitespace never reach the wire unquoted", () => {
+  it.each(["a#b", "a=b", "a b", 'a"b', "a\\b", ""])("refuses the command parameter %j", async param => {
+    const mock = createMockNutServer(() => "OK");
+    const port = await mock.start();
+    const client = new NutClient("127.0.0.1", port);
+    try {
+      await client.connect();
+      await expect(client.instCmd("ups0", "load.off.delay", param)).rejects.toBeInstanceOf(NutInputError);
+      expect(mock.commands.some(c => c.startsWith("INSTCMD"))).toBe(false);
+    } finally {
+      client.destroy();
+      await mock.stop();
+    }
+  });
+
+  it("reports a refused name as an input error, not a plain Error", async () => {
+    const client = new NutClient("127.0.0.1", 1);
+    await expect(client.listVar("bad name")).rejects.toBeInstanceOf(NutInputError);
+    await expect(client.listVar("u=p")).rejects.toMatchObject({ code: "INVALID-INPUT" });
+  });
+});
+
+describe("A9 protocol surface — INSTCMD parameter, TRACKING, GET VAR/DESC/CMDDESC", () => {
+  it("sends the command parameter as the third argument", async () => {
+    const mock = createMockNutServer(() => "OK");
+    const port = await mock.start();
+    const client = new NutClient("127.0.0.1", port);
+    try {
+      await client.connect();
+      await client.instCmd("ups0", "load.off.delay", "120");
+      await client.instCmd("ups0", "beeper.mute");
+      expect(mock.commands).toEqual(["INSTCMD ups0 load.off.delay 120", "INSTCMD ups0 beeper.mute"]);
+    } finally {
+      client.destroy();
+      await mock.stop();
+    }
+  });
+
+  it("switches tracking on and reads a tracking result", async () => {
+    const mock = createMockNutServer(cmd =>
+      cmd === "SET TRACKING ON"
+        ? "OK"
+        : cmd.startsWith("SET VAR")
+          ? "OK TRACKING 1bd31808-cb49-4aec-9d75-d056e6f018d2"
+          : cmd.startsWith("GET TRACKING")
+            ? "SUCCESS"
+            : "OK",
+    );
+    const port = await mock.start();
+    const client = new NutClient("127.0.0.1", port);
+    try {
+      await client.connect();
+      await client.setTracking(true);
+      const id = await client.setVar("ups0", "ups.delay.shutdown", "30");
+      expect(id).toBe("1bd31808-cb49-4aec-9d75-d056e6f018d2");
+      expect(await client.getTracking(id!)).toBe("SUCCESS");
+      expect(mock.commands).toContain("GET TRACKING 1bd31808-cb49-4aec-9d75-d056e6f018d2");
+    } finally {
+      client.destroy();
+      await mock.stop();
+    }
+  });
+
+  it("reads GET VAR, GET DESC and GET CMDDESC", async () => {
+    const mock = createMockNutServer(cmd => {
+      if (cmd.startsWith("GET VAR")) {
+        return 'VAR ups0 ups.id "My \\"UPS\\""';
+      }
+      if (cmd.startsWith("GET DESC")) {
+        return 'DESC ups0 ups.id "UPS system identifier"';
+      }
+      if (cmd.startsWith("GET CMDDESC")) {
+        return 'CMDDESC ups0 driver.killpower "Tell the driver daemon to initiate UPS shutdown"';
+      }
+      return "ERR UNKNOWN-COMMAND";
+    });
+    const port = await mock.start();
+    const client = new NutClient("127.0.0.1", port);
+    try {
+      await client.connect();
+      expect(await client.getVar("ups0", "ups.id")).toBe('My "UPS"');
+      expect(await client.getDesc("ups0", "ups.id")).toBe("UPS system identifier");
+      expect(await client.getCmdDesc("ups0", "driver.killpower")).toBe(
+        "Tell the driver daemon to initiate UPS shutdown",
+      );
+    } finally {
+      client.destroy();
+      await mock.stop();
+    }
+  });
+
+  it("rejects a GET answer of the wrong kind", async () => {
+    const mock = createMockNutServer(() => "OK");
+    const port = await mock.start();
+    const client = new NutClient("127.0.0.1", port);
+    try {
+      await client.connect();
+      await expect(client.getVar("ups0", "ups.id")).rejects.toMatchObject({ code: "UNEXPECTED-RESPONSE" });
+    } finally {
+      client.destroy();
+      await mock.stop();
+    }
+  });
+});
+
+describe("A10 credentials and values upsd cannot carry", () => {
+  it.each([
+    ["a=b", "="],
+    ["pässword", "printable ASCII"],
+  ])("refuses the password %j", async (password, hint) => {
+    const client = new NutClient("127.0.0.1", 1);
+    const err = await client.authenticate("user", password).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(NutInputError);
+    expect((err as Error).message).toContain(hint);
+    expect((err as Error).message).not.toContain(password);
+  });
+
+  it("lets a # through and names it in a warning instead", async () => {
+    const mock = createMockNutServer(() => "OK");
+    const port = await mock.start();
+    const client = new NutClient("127.0.0.1", port);
+    try {
+      await client.connect();
+      await client.authenticate("user", "ab#cd");
+      expect(mock.commands).toContain("PASSWORD ab#cd");
+      expect(credentialHashWarning("user", "ab#cd")).toContain("password");
+      expect(credentialHashWarning("us#er", "ab#cd")).toContain("username and password");
+      expect(credentialHashWarning("user", "abcd")).toBeNull();
+    } finally {
+      client.destroy();
+      await mock.stop();
+    }
+  });
+
+  it("refuses a SET VAR value upsd would store without its non-ASCII characters", async () => {
+    const client = new NutClient("127.0.0.1", 1);
+    await expect(client.setVar("ups0", "device.location", "Büro")).rejects.toBeInstanceOf(NutInputError);
+  });
+});
+
+describe("A11 quoting — a server that quotes names (UniFi UPS firmware) reads the same", () => {
+  it("parses quoted names and unquoted values and accepts a quoted END line", async () => {
+    // home-assistant/core#154469: `VAR "myups" "battery.charge" 100`.
+    const mock = createMockNutServer(cmd =>
+      cmd === "LIST UPS"
+        ? ["BEGIN LIST UPS", 'UPS unifi_ups_tower "UPS identifier"', "END LIST UPS"]
+        : [
+            'BEGIN LIST VAR "myups"',
+            'VAR "myups" "battery.charge" 100',
+            'VAR "myups" "ups.status" "OL CHRG"',
+            'VAR "myups" "ups.model" TOWER_1000VA_120V',
+            'END LIST VAR "myups"',
+          ],
+    );
+    const port = await mock.start();
+    const client = new NutClient("127.0.0.1", port);
+    try {
+      await client.connect();
+      expect(await client.listUps()).toEqual([{ name: "unifi_ups_tower", description: "UPS identifier" }]);
+      expect(await client.listVar("myups")).toEqual([
+        { name: "battery.charge", value: "100" },
+        { name: "ups.status", value: "OL CHRG" },
+        { name: "ups.model", value: "TOWER_1000VA_120V" },
+      ]);
+    } finally {
+      client.destroy();
+      await mock.stop();
+    }
+  });
+
+  it("splits a protocol line the way upsd parses it", () => {
+    expect(splitNutLine('VAR ups0 x "a b"')).toEqual(["VAR", "ups0", "x", "a b"]);
+    expect(splitNutLine('VAR "ups0" "x" 1')).toEqual(["VAR", "ups0", "x", "1"]);
+    expect(splitNutLine('DESC u v "say \\"hi\\" \\#1 \\\\"')).toEqual(["DESC", "u", "v", 'say "hi" #1 \\']);
+    expect(splitNutLine('VAR u v ""')).toEqual(["VAR", "u", "v", ""]);
+    expect(splitNutLine("  END   LIST  UPS ")).toEqual(["END", "LIST", "UPS"]);
   });
 });
