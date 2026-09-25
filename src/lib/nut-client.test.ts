@@ -155,6 +155,9 @@ function createMockNutServer(handler?: MockHandler): {
     let buf = "";
     connections.add(socket);
     socket.on("close", () => connections.delete(socket));
+    // A test may drop the connection while an answer is still being written (EPIPE/ECONNRESET);
+    // unhandled, that error would surface in whichever test happens to run next.
+    socket.on("error", () => {});
     socket.setEncoding("utf8");
     socket.on("data", (data: string) => {
       buf += data;
