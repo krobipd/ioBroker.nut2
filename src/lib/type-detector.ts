@@ -56,9 +56,6 @@ const KNOWN_STRING_NAMES = new Set([
   "battery.charge.approx",
 ]);
 
-/** Known-string exact prefixes — always string. */
-const KNOWN_STRING_PREFIXES = ["driver.version."];
-
 /**
  * `driver.parameter.<key>` echoes the driver's ups.conf setting verbatim (drivers/main.c prints
  * every one with "%s"): `runtimecal = 240,100,720,50`, `bus = "001"`, `port = auto`. A config echo
@@ -324,12 +321,6 @@ function isKnownString(varName: string): boolean {
 
   if (varName.startsWith("driver.parameter.") && !NUMERIC_DRIVER_PARAMETERS.has(varName)) {
     return true;
-  }
-
-  for (const prefix of KNOWN_STRING_PREFIXES) {
-    if (varName.startsWith(prefix)) {
-      return true;
-    }
   }
 
   if (varName.includes(".version")) {

@@ -996,7 +996,7 @@ describe("B6 a countdown printed as -1.0 is idle too", () => {
 });
 
 describe("needle wave 2026-09-25: shares and version strings", () => {
-  it.each(["output.L1.power.percent", "power.maximum.percent", "power.percent"])(
+  it.each(["output.L1.power.percent", "output.L1.realpower.percent", "power.maximum.percent", "power.percent"])(
     "%s is a plain value in %% — whatever quantity its name mentions",
     name => {
       const r = detectType(name, "35", false);
