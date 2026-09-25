@@ -1,5 +1,16 @@
 # Older changes
 
+## 0.13.0 (2026-09-02)
+
+- New: every data point now carries a short explanation in your language — what it means, not just what it is called
+- New: status text, severity levels and selection lists are shown in your language instead of English
+- Changed: wrong credentials no longer stop the monitoring — the adapter warns, keeps reading the UPS values, and only refuses commands and writable variables
+- Fixed: during a power failure, machines protected by the same UPS now shut down without waiting for this adapter
+- Fixed: a countdown that is not running is now empty instead of showing "-1 seconds", on every UPS brand
+- Fixed: model and other text values no longer carry the padding some UPS models send along
+- Fixed: channel names from older adapter versions are corrected instead of staying as they were
+- Fixed: the connection test answers in your language now, like the rest of the settings page
+
 ## 0.12.1 (2026-09-02)
 
 - Fixed: the "Test connection" button in the settings stayed silent — clicking it produced no result at all. It answers again, on every instance updated from 0.9.0 or later

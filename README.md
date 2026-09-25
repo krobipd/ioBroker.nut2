@@ -263,7 +263,7 @@ Any write to `nut2.0.notify` triggers an immediate poll of all UPS devices; an e
     ### **WORK IN PROGRESS**
 -->
 
-### **WORK IN PROGRESS**
+### 0.17.0 (2026-09-25)
 
 - New: a UPS command that needs a value, such as a delay, can be sent through the new `commands.execute` data point, written the way upscmd takes it
 - New: when the NUT server tracks commands, the log says whether the driver really carried out a command or a new setting, not only that it was sent
@@ -324,17 +324,6 @@ Any write to `nut2.0.notify` triggers an immediate poll of all UPS devices; an e
 - Fixed: renamed data points of the adapter itself now reach existing installations instead of only new ones
 - Fixed: enabling instant commands without credentials no longer fails silently — the adapter now explains why no command buttons are created
 - New: detailed user documentation in English and German is now part of the repository and shown in the ioBroker documentation portal
-
-### 0.13.0 (2026-09-02)
-
-- New: every data point now carries a short explanation in your language — what it means, not just what it is called
-- New: status text, severity levels and selection lists are shown in your language instead of English
-- Changed: wrong credentials no longer stop the monitoring — the adapter warns, keeps reading the UPS values, and only refuses commands and writable variables
-- Fixed: during a power failure, machines protected by the same UPS now shut down without waiting for this adapter
-- Fixed: a countdown that is not running is now empty instead of showing "-1 seconds", on every UPS brand
-- Fixed: model and other text values no longer carry the padding some UPS models send along
-- Fixed: channel names from older adapter versions are corrected instead of staying as they were
-- Fixed: the connection test answers in your language now, like the rest of the settings page
 
 [Older changelogs can be found there](CHANGELOG_OLD.md)
 
