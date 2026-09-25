@@ -59,7 +59,7 @@ const NEVER_LISTED: Record<string, string> = {
 function concrete(name: string): string {
   return name
     .replace(/\.[nx]\./g, ".1.")
-    .replace(/^driver\.parameter\.xxx$/, "driver.parameter.port")
+    .replace(/^driver\.parameter\.xxx$/, "driver.parameter.sdtype") // a key without its own entry: the generic rule
     .replace(/^driver\.flag\.xxx$/, "driver.flag.ignorelb");
 }
 
