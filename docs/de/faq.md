@@ -87,6 +87,14 @@ Einstellung ausgeführt hat. Diese Zeile heißt: Der Server hat ihn angenommen, 
 Befehls-Zeitgrenze aber nicht zurückgemeldet — dann an der USV selbst nachsehen. Meldet der Treiber einen Fehler, gibt
 es stattdessen eine Fehlerzeile.
 
+## Ein Wert mit „#“ wird nicht geschrieben.
+
+NUT kann ihn nicht zurücktragen: Der Treiber meldet den neuen Wert ohne Escape des `#` an den
+NUT-Server, und der Server verwirft diese Meldung — er würde weiter den alten Wert zeigen, ebenso
+jeder andere NUT-Client. Gemessen an NUT 2.8.5; die aktuelle NUT-Entwicklungslinie sendet ihn genauso.
+Der Adapter schickt einen solchen Wert deshalb nicht, sagt das im Log und zeigt wieder den Wert des
+Servers. Werte mit `#` zu lesen funktioniert.
+
 ## Ich habe einen Datenpunkt im Objektbaum umbenannt, und der Name kam zurück.
 
 Das ist so gewollt. Name und Beschreibung seiner Datenpunkte gehören dem Adapter genauso wie deren Typ und Rolle, und

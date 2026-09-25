@@ -1275,6 +1275,17 @@ export class NutAdapter extends utils.Adapter {
       // accepts yes/no). Translate it back to the token NUT expects — String(true) = "true" would
       // be rejected with INVALID-VALUE/SET-FAILED. Numbers/enum strings write verbatim.
       const value = typeof state.val === "boolean" ? (state.val ? "yes" : "no") : String(state.val);
+      // A "#" cannot make the round trip: the driver reports the new value back to upsd unescaped
+      // (NUT drivers/dstate.c, SETINFO — 2.8.5 and current master), and upsd's parser drops that
+      // line at the "#" (common/parseconf.c) together with the tracking answer behind it. upsd and
+      // every NUT client would keep showing the old value. Measured on upsd 2.8.5 (2026-09-25).
+      if (value.includes("#")) {
+        this.log.warn(
+          `Not writing ${varName} on ${nutName}: the value contains "#", which the NUT driver cannot report back to the NUT server — the server would keep showing the old value`,
+        );
+        await this.restoreFromServer(id, nutName, varName);
+        return;
+      }
       this.log.debug(`SET VAR ${nutName} ${varName} "${value}"`);
       try {
         const tracking = await this.client.setVar(nutName, varName, value);

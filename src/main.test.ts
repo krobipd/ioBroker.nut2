@@ -2442,3 +2442,15 @@ describe("needle wave 2026-09-25: runtime rules the suite did not isolate", () =
     expect(s.sm.updateVariables).not.toHaveBeenCalled();
   });
 });
+
+describe("a value with # is not written (NUT drivers report it back unescaped)", () => {
+  it("refuses the write with a warning, sends nothing and restores the server's value", async () => {
+    const s = await setupConnected({ enableSetVar: true, username: "u", password: "p" });
+    await withWritable(s, "ups.id");
+    s.client.getVar.mockResolvedValue("Rack3");
+    await s.internal.onStateChange("nut2.0.ups0.ups.id", { val: "Rack #3", ack: false });
+    expect(s.client.setVar).not.toHaveBeenCalled();
+    expect(logsOf(s.stub, "warn").some(m => m.includes('contains "#"'))).toBe(true);
+    expect(s.stub.states.get("nut2.0.ups0.ups.id")).toEqual({ val: "Rack3", ack: true });
+  });
+});

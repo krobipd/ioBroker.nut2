@@ -277,7 +277,7 @@ Any write to `nut2.0.notify` triggers an immediate poll of all UPS devices; an e
 - Fixed: a UPS that is missing from the NUT server for a moment keeps its data points and history; it is removed only after three polls without it
 - Fixed: the status severity stays empty when the status names no power source, instead of claiming OK for a UPS that is off or still starting
 - Fixed: command buttons follow the driver's command list — buttons of commands it no longer offers disappear, and a UPS without commands gets none
-- Fixed: values containing #, quotes or backslashes are read correctly and sent escaped as NUT requires, and credentials NUT cannot carry are refused clearly
+- Fixed: values containing #, quotes or backslashes are read correctly; writing a value with # is refused with an explanation, as NUT drivers cannot report it back
 - Fixed: an unreachable NUT server, stale driver data and a reconnect are logged quietly as the states they are instead of as repeated warnings
 - Fixed: a TLS certificate problem stops the retries with one clear message, and a UPS reporting several value ranges shows the full range
 - Improved: names and explanations for every variable and command of the NUT 2.8.5 catalog in all eleven languages, including outlets, groups and sensors

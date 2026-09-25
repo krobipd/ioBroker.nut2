@@ -81,6 +81,14 @@ When the NUT server tracks commands (NUT 2.8.0 and later), the adapter asks it w
 new setting out. This line means the server accepted it, but the driver did not report back within the command timeout
 — check the UPS itself. A driver that reports a failure produces an error line instead.
 
+## Writing a value that contains "#" is refused.
+
+NUT cannot carry it back: the driver reports the new value to the NUT server without escaping the
+`#`, and the server discards that report — it would keep showing the old value, and so would every
+other NUT client. Measured on NUT 2.8.5; the current NUT development line sends it the same way. The
+adapter therefore does not send such a value, says so in the log and shows the server's value again.
+Reading values that contain `#` works.
+
 ## I renamed a data point in the object tree and the name came back.
 
 That is intended. The adapter owns name and description of its data points the same way it owns their type and role,

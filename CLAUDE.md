@@ -126,7 +126,7 @@ _Jede Entscheidung steht hier als Regel-Satz; Beleg, Messung und Verlauf stehen 
 56. **Drei Härtungen ohne eigene Geschichte (2026-09-12)** — (a) `enrichWritableVars` trennt Protokollaufruf und Objekt-Schreibvorgang in zwei `try`s; vorher hieß jeder gescheiterte Schreibvorgang „LIST ENUM/RANGE … not supported" auf debug, jetzt `warn` mit Datenpunkt …
 57. **Der Start-Test gegen den Fake-`upsd` läuft in der CI bei jedem Push (2026-09-15, Flotten-Gate-Job `adapter-inventory`)** — bis dahin fuhr GitHub nur die nackte Startprobe (`test/integration.js`), und Dependabot mergte bei Grün; `npm run test:inventory` lief allein im Release-Vorlauf (D06).
 
-_#58–#77: Belege im Eintrag „2026-09-25 — Audit 2026-09-25 umgesetzt“ der `.claude/dev-history.md`._
+_#58–#78: Belege im Eintrag „2026-09-25 — Audit 2026-09-25 umgesetzt“ der `.claude/dev-history.md`._
 
 58. **Severity nur für die Stromquelle (2026-09-25, E1)** — ohne `OL`/`OB`/`BYPASS`/`FSD` im Status (`OFF` allein, `WAIT`, PDU ohne Status) ist `status.severity` leer (`null`), nie „OK“.
 59. **Befehle mit Wert über `commands.execute` (E2)** — Text wie bei `upscmd` (`<befehl> [<wert>]`), gleiche Sperren wie die Tasten, der Befehl muss in `LIST CMD` stehen, der Wert geht durch den Token-Wächter (#27).
@@ -148,6 +148,7 @@ _#58–#77: Belege im Eintrag „2026-09-25 — Audit 2026-09-25 umgesetzt“ de
 75. **Katalog gegen beide NUT-Register geprüft** — `test/nut-names-2.8.5.json` (nut-names.txt + cmdvartab); jede Variable hat Namen, Erklärung oder begründeten Selbsterklär-Eintrag, jede Einheit wie im Register; `server.*` ausgenommen (nur `GET VAR`).
 76. **Fixtures aus Registern und Device Dump Library, nie vom Maintainer-Gerät** — Beschreibungen `ups.conf`-artig, Herkunft in `source`; der Harness wartet auf Werte und Inhaltsruhe, nicht auf eine Zeitspanne.
 77. **`GET DESC`/`GET CMDDESC` sind keine Datenpunkt-Erklärung** — Flottenregel „`desc` nie aus einem Laufzeitwert“; die Methoden bleiben Protokoll-Primitive.
+78. **SET VAR mit `#` im Wert wird vor der Leitung abgewiesen** — NUT-Treiber melden den Wert unescaped an upsd zurück (`drivers/dstate.c`, SETINFO), upsd verwirft die Zeile samt Tracking; warn + Serverwert zurück.
 
 ## Tests (938 unit = 919 Adapter + 19 Repo-Standards aus `iobroker-adapter-checks`; + 61 package = 999) + `npm run test:inventory` (Objekt-Inventar, 1291 Objekte aus 15 Fixtures; Aufstiegs-Suite mit Raum-Zuordnung und Umzugs-Saat)
 
