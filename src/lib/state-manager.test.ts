@@ -10,6 +10,7 @@ vi.mock("@iobroker/adapter-core", () => ({
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { StateManager, nutVarToStateId, nutVarToReadableName, sanitizeUpsName } from "./state-manager";
+import { ALL_FLAG_KEYS } from "./status-parser";
 
 /**
  * Narrow a lookup that must have succeeded, so the test reads the object without optional chaining.
@@ -180,6 +181,10 @@ function createMockAdapter(): {
       existing.common = deepExtend(existing.common ?? {}, newCommon);
       if (obj.native !== undefined) {
         existing.native = deepExtend(existing.native ?? {}, obj.native);
+      }
+      // js-controller merges the whole object, the object type included (7.2.2 extendObject).
+      if (obj.type !== undefined) {
+        existing.type = obj.type;
       }
       return Promise.resolve();
     },
@@ -802,10 +807,31 @@ describe("StateManager", () => {
       const sm = new StateManager(adapter);
 
       await sm.updateStatusFlags("ups0", "OL");
+      for (const channel of ["battery", "device", "driver", "input", "output", "ups", "ambient", "outlet"]) {
+        await sm.ensureChannel("ups0", channel);
+      }
+      await sm.ensureUpsDevice("ups0", "Main");
+      await sm.createCommandButtons("ups0", [{ name: "beeper.mute" }]);
 
-      expect(objects.get("ups0.status")?.common.desc).toBeDefined();
-      expect(objects.get("ups0.status.online")?.common.desc).toBeDefined();
-      expect(objects.get("ups0.status.severity")?.common.desc).toBeDefined();
+      const missing = [
+        ...ALL_FLAG_KEYS.map(k => `ups0.status.${k}`),
+        "ups0.status.severity",
+        ...[
+          "status",
+          "info",
+          "commands",
+          "battery",
+          "device",
+          "driver",
+          "input",
+          "output",
+          "ups",
+          "ambient",
+          "outlet",
+        ].map(c => `ups0.${c}`),
+      ].filter(id => objects.get(id)?.common.desc === undefined);
+      expect(ALL_FLAG_KEYS).toHaveLength(19);
+      expect(missing).toEqual([]);
     });
 
     it("explains a command button", async () => {
@@ -1050,9 +1076,9 @@ describe("StateManager", () => {
 
       await sm.updateStatusFlags("ups0", "OL CHRG");
 
-      expect(states.get("ups0.status.online")?.val).toBe(true);
-      expect(states.get("ups0.status.charging")?.val).toBe(true);
-      expect(states.get("ups0.status.onBattery")?.val).toBe(false);
+      // All 19 — the two that are set, and every other one written false (not left out).
+      const values = Object.fromEntries(ALL_FLAG_KEYS.map(k => [k, states.get(`ups0.status.${k}`)?.val]));
+      expect(values).toEqual(Object.fromEntries(ALL_FLAG_KEYS.map(k => [k, k === "online" || k === "charging"])));
     });
 
     it("should set severity 3 for OB LB", async () => {
@@ -1453,17 +1479,21 @@ describe("StateManager", () => {
       expect(deletedIds).toHaveLength(0);
     });
 
-    it("should clear createdIds cache for removed devices", async () => {
+    it("a device removed and re-added with the SAME description is rebuilt completely", async () => {
+      // With an unchanged description every write of ensureUpsDevice is guarded by a memory (the
+      // label, createdIds). Only if the removal cleared those memories does the device come back —
+      // a changed description would have rewritten it anyway and proven nothing.
       const { adapter, objects } = createMockAdapter();
       const sm = new StateManager(adapter);
 
       await sm.ensureUpsDevice("ups0", "Main");
       await sm.pruneObjectTree(new Set());
+      expect(objects.has("ups0")).toBe(false);
 
-      // After cleanup, re-creating should work (not cached)
-      objects.clear();
-      await sm.ensureUpsDevice("ups0", "Re-created");
+      await sm.ensureUpsDevice("ups0", "Main");
       expect(objects.has("ups0")).toBe(true);
+      expect(objects.has("ups0.info")).toBe(true);
+      expect(objects.has("ups0.info.reachable")).toBe(true);
     });
 
     it("should log removal", async () => {
@@ -1579,25 +1609,28 @@ describe("StateManager", () => {
   // createdIds cache
   // -----------------------------------------------------------------------
   describe("createdIds cache", () => {
-    it("should not call setObjectNotExistsAsync twice for same id", async () => {
-      let callCount = 0;
-      const { adapter } = createMockAdapter();
-      const originalSetObj = adapter.setObjectNotExistsAsync;
-      adapter.setObjectNotExistsAsync = (...args: any[]) => {
-        callCount++;
-        return Promise.resolve(originalSetObj(...args));
-      };
-
+    it("a second poll with the same shape writes the value but no object", async () => {
+      const { adapter, states } = createMockAdapter();
+      const writes: string[] = [];
+      for (const method of ["setObjectNotExistsAsync", "extendObject", "setForeignObject"] as const) {
+        const original = adapter[method];
+        adapter[method] = (id: string, ...rest: unknown[]) => {
+          writes.push(`${method} ${id}`);
+          return Promise.resolve(original(id, ...rest));
+        };
+      }
       const sm = new StateManager(adapter);
 
       await sm.updateVariables("ups0", [{ name: "battery.charge", value: "100" }], new Set());
-
-      const firstCount = callCount;
+      expect(
+        writes.some(w => w.endsWith("ups0.battery.charge")),
+        "the first poll creates the object",
+      ).toBe(true);
+      writes.length = 0;
 
       await sm.updateVariables("ups0", [{ name: "battery.charge", value: "95" }], new Set());
-
-      // Second call should skip object creation (cached)
-      expect(callCount).toBe(firstCount);
+      expect(writes, "object writes on the second poll").toEqual([]);
+      expect(states.get("ups0.battery.charge")?.val).toBe(95);
     });
   });
 

@@ -710,11 +710,11 @@ describe("type-detector", () => {
   });
 
   // -----------------------------------------------------------------------
-  // Catalog coverage — every representative nut-2.8.5 variable maps to its
-  // correct datapoint (type / unit / common.states) in one verified pass.
-  // Bare text is only correct for genuinely opaque fields.
+  // Representative nut-2.8.5 variables map to their correct datapoint (type / unit /
+  // common.states). Bare text is only correct for genuinely opaque fields. The WHOLE registry is
+  // walked by catalog-completeness.test.ts (labels, explanations, units).
   // -----------------------------------------------------------------------
-  describe("nut-2.8.5 catalog coverage", () => {
+  describe("representative nut-2.8.5 variables: type, unit and value list", () => {
     const THR = ["good", "warning-low", "warning-high", "critical-low", "critical-high"];
     const FREQ = [...THR, "out-of-range"];
     const ONOFF = ["on", "off"];

@@ -174,7 +174,8 @@ function createMockNutServer(handler?: MockHandler): {
         const h = handler ?? defaultHandler;
         const response = h(trimmed);
         if (response === null) {
-          return;
+          // No answer to THIS command — the next one in the same chunk still gets its own.
+          continue;
         }
         if (Array.isArray(response)) {
           for (const r of response) {
@@ -222,6 +223,8 @@ function createStartTlsMockServer(
 ): {
   start: () => Promise<number>;
   stop: () => Promise<void>;
+  /** Tear every open connection down (TCP and TLS) while the server keeps listening. */
+  dropAll: () => void;
   commands: string[];
   /** Server-names the client offered via SNI (empty when it offered none). */
   sniNames: string[];
@@ -302,6 +305,12 @@ function createStartTlsMockServer(
   return {
     commands,
     sniNames,
+    dropAll: () => {
+      for (const c of connections) {
+        c.destroy();
+      }
+      connections.clear();
+    },
     start: () =>
       new Promise<number>(resolve => {
         server.listen(0, "127.0.0.1", () => {
@@ -2736,4 +2745,154 @@ describe("A11 quoting — a server that quotes names (UniFi UPS firmware) reads 
     expect(splitNutLine('VAR u v ""')).toEqual(["VAR", "u", "v", ""]);
     expect(splitNutLine("  END   LIST  UPS ")).toEqual(["END", "LIST", "UPS"]);
   });
+});
+
+describe("E5 protocol edge cases the audit found untested", () => {
+  /**
+   * A raw server that answers the first command it receives through `answer`.
+   *
+   * @param answer Writes the answer (bytes as given, possibly split) to the socket
+   */
+  async function rawServer(
+    answer: (socket: net.Socket) => void,
+  ): Promise<{ port: number; close: () => Promise<void> }> {
+    const sockets = new Set<net.Socket>();
+    const server = net.createServer(socket => {
+      sockets.add(socket);
+      socket.on("error", () => {});
+      let answered = false;
+      socket.on("data", () => {
+        if (!answered) {
+          answered = true;
+          answer(socket);
+        }
+      });
+    });
+    const port = await new Promise<number>(resolve =>
+      server.listen(0, "127.0.0.1", () => resolve((server.address() as net.AddressInfo).port)),
+    );
+    return {
+      port,
+      close: () =>
+        new Promise<void>(resolve => {
+          for (const s of sockets) {
+            s.destroy();
+          }
+          server.close(() => resolve());
+        }),
+    };
+  }
+
+  it("a UTF-8 character split across two TCP chunks arrives whole", async () => {
+    const text = 'BEGIN LIST VAR ups0\nVAR ups0 device.location "Keller – Raum 2 ✓"\nEND LIST VAR ups0\n';
+    const bytes = Buffer.from(text, "utf8");
+    // Cut inside the three bytes of "–" (U+2013) and again inside "✓".
+    const cutA = bytes.indexOf(Buffer.from("–", "utf8")) + 1;
+    const cutB = bytes.indexOf(Buffer.from("✓", "utf8")) + 2;
+    const srv = await rawServer(socket => {
+      socket.write(bytes.subarray(0, cutA));
+      setTimeout(() => socket.write(bytes.subarray(cutA, cutB)), 10);
+      setTimeout(() => socket.write(bytes.subarray(cutB)), 20);
+    });
+    try {
+      const client = new NutClient("127.0.0.1", srv.port);
+      await client.connect();
+      expect(await client.listVar("ups0")).toEqual([{ name: "device.location", value: "Keller – Raum 2 ✓" }]);
+      client.destroy();
+    } finally {
+      await srv.close();
+    }
+  });
+
+  it("a connection that dies in the middle of a LIST rejects the command instead of resolving half a list", async () => {
+    const srv = await rawServer(socket => {
+      socket.write('BEGIN LIST VAR ups0\nVAR ups0 battery.charge "100"\n');
+      setTimeout(() => socket.destroy(), 20);
+    });
+    try {
+      const client = new NutClient("127.0.0.1", srv.port, { commandTimeout: 5000 });
+      await client.connect();
+      await expect(client.listVar("ups0")).rejects.toThrow(NutConnectionError);
+      expect(client.isConnected).toBe(false);
+      client.destroy();
+    } finally {
+      await srv.close();
+    }
+  });
+
+  it("an END for another UPS does not close the list — the foreign lines never become a result", async () => {
+    const srv = await rawServer(socket => {
+      socket.write('BEGIN LIST VAR ups0\nVAR ups0 battery.charge "100"\nEND LIST VAR ups1\n');
+    });
+    try {
+      const client = new NutClient("127.0.0.1", srv.port, { commandTimeout: 150 });
+      await client.connect();
+      await expect(client.listVar("ups0")).rejects.toThrow(NutTimeoutError);
+      // The timeout desynchronised the stream, so the client dropped it (it reconnects on a clean one).
+      expect(client.isConnected).toBe(false);
+      client.destroy();
+    } finally {
+      await srv.close();
+    }
+  });
+
+  it("a line nobody asked for is ignored — the next command gets its own answer", async () => {
+    const mock = createMockNutServer(cmd =>
+      cmd === "LIST UPS" ? ["BEGIN LIST UPS", 'UPS ups0 "Main"', "END LIST UPS"] : "ERR UNKNOWN-COMMAND",
+    );
+    const port = await mock.start();
+    try {
+      const lines: string[] = [];
+      const client = new NutClient("127.0.0.1", port, {
+        logger: { debug: (m: string) => lines.push(m), info: () => {}, warn: () => {} },
+      });
+      await client.connect();
+      // @ts-expect-error feeding a stray line straight into the parser, as if the server had sent it
+      client.onData('VAR ups0 battery.charge "100"\n');
+      expect(lines.some(l => l.includes("(no active command)"))).toBe(true);
+      expect(await client.listUps()).toEqual([{ name: "ups0", description: "Main" }]);
+      client.destroy();
+    } finally {
+      await mock.stop();
+    }
+  });
+
+  it(
+    "a TLS connection that breaks after the handshake is a network event — reconnect, never fatal",
+    {
+      timeout: 10000,
+    },
+    async () => {
+      const mock = createStartTlsMockServer(cmd =>
+        cmd === "LIST UPS" ? ["BEGIN LIST UPS", 'UPS ups0 "Main"', "END LIST UPS"] : "OK",
+      );
+      const port = await mock.start();
+      try {
+        const client = new NutClient("127.0.0.1", port, { useTls: true, tlsRejectUnauthorized: false });
+        let connects = 0;
+        const first = deferred();
+        const second = deferred();
+        const fatal = vi.fn();
+        const dropped = vi.fn();
+        client.setOnConnect(() => {
+          connects++;
+          (connects === 1 ? first : second).resolve();
+        });
+        client.setOnFatal(fatal);
+        client.setOnDisconnect(dropped);
+        client.start();
+        await first.promise;
+        expect(client.isTls).toBe(true);
+
+        mock.dropAll();
+        await second.promise;
+        expect(dropped).toHaveBeenCalled();
+        expect(fatal).not.toHaveBeenCalled();
+        expect(await client.listUps()).toEqual([{ name: "ups0", description: "Main" }]);
+        client.destroy();
+      } finally {
+        await mock.stop();
+      }
+    },
+  );
 });

@@ -2038,6 +2038,18 @@ describe("C3 a connection lost in the middle of the UPS loop is reported once", 
     expect(logsOf(s.stub, "warn")).toEqual([]);
     expect(s.internal.lastErrorCode).toBe("NETWORK");
   });
+
+  it("an answer the client dropped for its size is the same lost connection — no error line", async () => {
+    // A7: the client drops the stream when a LIST outgrows MAX_RESPONSE_BYTES and rejects with
+    // this NutConnectionError; the adapter must take it as the network state it is.
+    const s = await setupConnected({}, [{ name: "ups0", description: "" }]);
+    s.client.listVar.mockRejectedValue(new NutConnectionError("NUT answer exceeded the size limit"));
+    s.stub.logs.length = 0;
+    await s.internal.poll();
+    expect(logsOf(s.stub, "warn")).toEqual([]);
+    expect(logsOf(s.stub, "error")).toEqual([]);
+    expect(s.internal.lastErrorCode).toBe("NETWORK");
+  });
 });
 
 describe("C4 a credential check that could not run is not a rejection", () => {
