@@ -20,7 +20,7 @@
 ```
 src/main.ts                     → NutAdapter (Lifecycle, Polling, onStateChange für Commands/SetVar)
 src/lib/
-├── nut-client.ts               → NUT TCP Client (persistent, command queue, reconnect, auth, redactForLog für Credential-Echo)
+├── nut-client.ts               → NUT TCP Client (persistent, command queue, reconnect, keepalive, TRACKING, auth, redactForLog für Credential-Echo)
 ├── nut-client.test.ts           → Mocked net.Socket tests
 ├── state-manager.ts            → ioBroker state CRUD (device/channel/state, createdIds-Cache, legacy cleanup, cleanupDeprecatedInfoStates, enrichStateMetadata, nutVarToStateId/nutVarToReadableName, sanitizeUpsName)
 ├── state-manager.test.ts
@@ -33,8 +33,12 @@ src/lib/
 ├── message-router.ts           → onMessage-Dispatcher (checkConnection + auth test, default-Branch-Contract)
 ├── message-router.test.ts
 ├── i18n.ts                     → tName(key) Wrapper über I18n.getTranslatedObject() (adapter-core I18n-Framework)
+├── device-icons.ts             → device.type → admin/icons/*.svg als data:-URI (Flotten-Rezept CLAUDE_PATTERNS.md)
+├── enum-carry.ts               → byte-gleiche Kopie des Masters (.consistency-master/src/lib/) — Raum-Übertrag bei Umbenennung
+├── catalog-completeness.test.ts → Katalog gegen test/nut-names-2.8.5.json (nut-names.txt + cmdvartab)
 └── types.ts                    → TypeScript Interfaces + NUT-Konstanten
-admin/i18n/<lang>.json          → Single-Source-of-Truth für UI- + State-Translations (297 Keys × 11 Sprachen)
+admin/i18n/<lang>.json          → Single-Source-of-Truth für UI- + State-Translations (1041 Keys × 11 Sprachen)
+admin/icons/*.svg               → Geräte-Piktogramme (ups, pdu, scd, psu, ats)
 docs/{en,de}/                   → Nutzerdoku im Repo (README/datapoints/faq), verlinkt über io-package.json common.docs
 ../scripts/sync-iopackage-from-i18n.py → regeneriert io-package.json:instanceObjects.common.name aus admin/i18n/ (zentral, source: admin-i18n)
 ```
@@ -47,7 +51,7 @@ _Jede Entscheidung steht hier als Regel-Satz; Beleg, Messung und Verlauf stehen 
 2. **Multi-UPS per Instanz** — via `LIST UPS` — alle UPS eines NUT-Servers automatisch entdeckt
 3. **Persistente TCP-Verbindung** — behebt den Per-Poll-Reconnect-Overhead des alten Adapters
 4. **Strikte Zahl-Heuristik** — statt GET TYPE — GET TYPE ist unzuverlässig (Eaton markiert alles als NUMBER).
-5. **Status-Flags als einzelne Booleans** — 19 Flags (`status-parser.ts:STATUS_CATALOG`, single source).
+5. **Status-Flags als einzelne Booleans** — 19 Flags (`status-parser.ts:STATUS_CATALOG`, single source); `severity` bleibt leer, wenn der Status keine Stromquelle nennt (#58).
 6. **Commands hinter Safety-Gate** — `enableCommands` Checkbox verhindert versehentliches `load.off`.
 7. **Network-Interface-Selector** — govee/hassemu-Pattern, wichtig für Multi-Homed-Server
 8. **Dot-Depth-Sortierung** — Variables nach Punkttiefe sortiert, damit Parent-States vor Children existieren (battery.charge vor battery.charge.low)
@@ -59,7 +63,7 @@ _Jede Entscheidung steht hier als Regel-Satz; Beleg, Messung und Verlauf stehen 
 14. **Unified Retry-Loop im Client** — `start()` besitzt EINE Schleife: retryt den initialen Connect, reconnectet bei Drops, stoppt gelb bei TLS-Config-Fatal (`onFatal`).
 15. **charging/discharging auch aus `battery.charger.status`** — USVen ohne CHRG/DISCHRG-Flags (z.B. Eaton Ellipse ECO, Apollon77-Issues #168/#97) füllen die Booleans über `battery.charger.status` (charging/discharging)
 16. **`driver.flag.*` → read-only Boolean** — NUT-core on/off flag (`enabled`/`disabled`/`0`/`1` via `parseFlagValue`); read-only erzwungen, weil das einzige schreibbare (`allow_killpower`, `ST_FLAG_NUMBER`) ein `1/0`-SET-Token bräuchte, das der Boolean-Schreibpfad …
-17. **on/off + enabled/disabled bleiben Enums (`common.states`), NICHT Boolean** — `onStateChange` mappt Boolean hart auf `yes`/`no`; ein Boolean-on-the-wire bräuchte per-Variable-Vokabular (`on` statt `yes`) → würde SET VAR für diese Variablen still brechen (die F1-Klasse).
+17. **on/off + enabled/disabled bleiben Enums (`common.states`), NICHT Boolean** — sie tragen keine Einheit, eine alte wird beim ersten Kontakt entfernt (#44) — `onStateChange` mappt Boolean hart auf `yes`/`no`; ein Boolean-on-the-wire bräuchte per-Variable-Vokabular (`on` statt `yes`) → würde SET VAR für diese Variablen still brechen (die F1-Klasse).
 18. **UPS-Namen-Sanitisierung** — `sanitizeUpsName` filtert Objekt-ID-verbotene Zeichen auf `[A-Za-z0-9_-]`; `discoveredUps` ist auf die sanitisierte ID gekeyt, der echte NUT-Name bleibt im Wert und wird für JEDEN Protokoll-Aufruf (LIST …
 19. **Poll als setTimeout-Kette** — `scheduleNextPoll` plant den nächsten Poll erst nach Abschluss des vorigen (kein Overlap statt fixem `setInterval`); `pollTimer` bleibt zwischen Ticks definiert, damit der `armPollTimer`-Idempotenz-Guard + die …
 20. **Credential-Redaction im Log** — `redactForLog` maskiert `USERNAME`/`PASSWORD` im Debug-Command-Echo (beides `protectedNative`/`encryptedNative`); der Wire-Write bleibt unredacted
@@ -72,7 +76,7 @@ _Jede Entscheidung steht hier als Regel-Satz; Beleg, Messung und Verlauf stehen 
 
 25. **USV-Liste bei JEDEM Poll (v0.11.0)** — `LIST UPS` ist ein billiger Befehl gegen den upsd-RAM-Cache; der Poll holt ihn als erstes und vergleicht die sortierten Namen mit `discoveredUps` (`upsListChanged`).
 26. **`onStateChange` — adapter-eigene Kanäle und Wert-Grenze (v0.11.0)** — `<usv>.info.*` (reachable, notify) und `<usv>.status.*` (geparste Flags) sind KEINE NUT-Variablen; ein Write dorthin (Skript, REST-API) endet mit debug, nicht als `SET VAR`, das upsd mit `VAR-NOT-SUPPORTED` und einer …
-27. **Protokoll-Token-Wächter im Client (v0.11.0)** — `tokenError()` prüft jeden unquoted Wire-Parameter (USV-Name, Variablen-Name, Befehlsname) auf leer / Whitespace / `"` / `\`, bevor `LIST VAR/RW/CMD/ENUM/RANGE`, `GET VAR`, `SET VAR`, `INSTCMD`, `LOGIN` ihn senden.
+27. **Protokoll-Token-Wächter im Client (v0.11.0)** — `tokenError()` prüft jeden unquoted Wire-Parameter (USV-Name, Variablen-Name, Befehlsname, INSTCMD-Parameter) auf leer / Whitespace / `"` / `\` / `#` / `=` und wirft `NutInputError`, bevor `LIST VAR/RW/CMD/ENUM/RANGE`, `GET VAR/DESC/CMDDESC/TRACKING`, `SET VAR`, `INSTCMD`, `LOGIN` ihn senden.
 28. **`ready` ≠ `connected` im Client (v0.11.0)** — `connected` steht ab TCP-Aufbau, `ready` erst nach vollständigem `connect()` (inkl.
 29. **Bestätigungsbefehle verlangen `OK` (v0.12.0)** — `sendOk()` für `USERNAME`, `PASSWORD`, `LOGIN`, `LOGOUT`, `SET VAR`, `INSTCMD`, `STARTTLS`: gültig ist nur eine Zeile `OK` (auch `OK STARTTLS`, `OK TRACKING <id>`); jede andere Nicht-`ERR`-Zeile ist …
 30. ⚠️ **ÜBERHOLT durch #33 (v0.13.0): das dauerhafte `LOGIN` auf der Betriebsverbindung ist wieder raus.** Historischer Stand v0.12.0/0.12.1 — **Mit Zugangsdaten meldet sich der Adapter IMMER an — EIN `LOGIN` je Verbindung (v0.12.0, krobi 2026-09-02: „dafür sind sie ja da")** — Reihenfolge in `onConnected`: `LIST UPS` → `USERNAME`/`PASSWORD` → `LOGIN <erste USV>`; danach werden ALLE USVs über dieselbe, nun geprüfte Verbindung gelesen und beschrieben (SET/INSTCMD prüfen Name+Passwort je Befehl, nicht `loginups`). Die Zugangsdaten gehören dem Server, nicht der USV — ein zweites `LOGIN` auf derselben Verbindung lehnt upsd ab (`ALREADY-LOGGED-IN`), das war der 0.4.5-Fehler „LOGIN je USV" und die falsche Konsequenz war, LOGIN ganz zu streichen. `authenticated` steht erst nach akzeptiertem LOGIN; ohne USV am Server: warn „nothing to log in to", keine Behauptung. **Voraussetzung im `upsd.users`: der Benutzer braucht `upsmon secondary` (oder `upsmon primary`)** — `actions = SET`/`instcmds` allein erlauben kein LOGIN; upsd antwortet bei falschem Passwort und bei fehlendem upsmon-Recht identisch `ACCESS-DENIED` (`user.c:306/311`), deshalb nennt `authFailureText()` beide Ursachen. Der Verbindungstest fährt exakt dieselbe Kette (+ `LOGOUT`) auf seiner Wegwerf-Verbindung und meldet erst dann „logged in as <user>" (Issue #17). Client-Zustand `loggedIn` (je Verbindung, Reset bei connect/close).
@@ -89,7 +93,7 @@ _Jede Entscheidung steht hier als Regel-Satz; Beleg, Messung und Verlauf stehen 
 40. **Der Verbindungstest erzählt dieselbe Geschichte wie der Adapter (v0.14.0)** — abgelehnte Zugangsdaten sind seit Design #32 **kein** Fehlerfall: der Test antwortet mit `{ result: … }` („verbunden, aber Zugangsdaten abgelehnt — Lesen geht"), nicht mit `{ error: … }`. Ein Nicht-Auth-Fehler an …
 41. **`dropCacheUnder` räumt ALLE Erinnerungen an eine USV (v0.14.0)** — nicht nur `createdIds`/`nutNames`, sondern auch `fallbackNames`, `pendingRecording` und die (jetzt je USV gekeyten) `warnedGarbageVars`.
 
-42. **Der WERT weicht dem Typ des angelegten Datenpunkts (v0.15.0)** — `ensureState` schreibt das Objekt einmal pro Laufzeit (`createdIds`), und #16 verbietet ausdrücklich, den Typ zwischen zwei Polls umzuschreiben.
+42. **Der WERT weicht dem Typ des angelegten Datenpunkts (v0.15.0)** — `ensureState` schreibt das Objekt einmal pro Laufzeit (`createdIds`), und #16 verbietet ausdrücklich, den Typ zwischen zwei Polls umzuschreiben; ein Messwert ohne Zahl bleibt ein leerer Zahl-Datenpunkt (#67).
 43. **Ein abwesender NUT-Server ist kein Fehler, sondern ein Zustand (v0.15.0)** — der Client wirft für „nicht verbunden"/„Verbindung geschlossen"/„Verbindungsaufbau überfällig" jetzt `NutConnectionError`, für ein Kommando-Zeitlimit `NutTimeoutError`; `classifyError` entscheidet an der **Klasse**, …
 44. **`min`/`max` und eine Werteliste können wieder VERSCHWINDEN — aber nur, wenn wirklich etwas weggefallen ist (v0.15.0, umgebaut 2026-09-12)** — sie stammen allein aus `LIST RANGE`/`LIST ENUM` und dem eigenen Katalog.
 
@@ -122,7 +126,30 @@ _Jede Entscheidung steht hier als Regel-Satz; Beleg, Messung und Verlauf stehen 
 56. **Drei Härtungen ohne eigene Geschichte (2026-09-12)** — (a) `enrichWritableVars` trennt Protokollaufruf und Objekt-Schreibvorgang in zwei `try`s; vorher hieß jeder gescheiterte Schreibvorgang „LIST ENUM/RANGE … not supported" auf debug, jetzt `warn` mit Datenpunkt …
 57. **Der Start-Test gegen den Fake-`upsd` läuft in der CI bei jedem Push (2026-09-15, Flotten-Gate-Job `adapter-inventory`)** — bis dahin fuhr GitHub nur die nackte Startprobe (`test/integration.js`), und Dependabot mergte bei Grün; `npm run test:inventory` lief allein im Release-Vorlauf (D06).
 
-## Tests (720 unit = 702 Adapter + 18 Repo-Standards aus `iobroker-adapter-checks`; + 58 package = 778) + `npm run test:inventory` (Objekt-Inventar, 643 Objekte; Aufstiegs-Suite mit Raum-Zuordnung)
+_#58–#77: Belege im Eintrag „2026-09-25 — Audit 2026-09-25 umgesetzt“ der `.claude/dev-history.md`._
+
+58. **Severity nur für die Stromquelle (2026-09-25, E1)** — ohne `OL`/`OB`/`BYPASS`/`FSD` im Status (`OFF` allein, `WAIT`, PDU ohne Status) ist `status.severity` leer (`null`), nie „OK“.
+59. **Befehle mit Wert über `commands.execute` (E2)** — Text wie bei `upscmd` (`<befehl> [<wert>]`), gleiche Sperren wie die Tasten, der Befehl muss in `LIST CMD` stehen, der Wert geht durch den Token-Wächter (#27).
+60. **upsmon-Anbindung nur per Hilfsskript dokumentiert (E3)** — rest-api `:8093`, `curl -fsS`, sechs `NOTIFYFLAG`; ein Skript überlebt `upsmon` ohne Shell nach NUT 2.8.5.
+61. **Kein Credits-Abschnitt (E4)** — die Herkunft (Apollon77s `iobroker.nut`) steht als ein Satz im README-Intro.
+62. **Leistung nach D08-Katalog (E5)** — Scheinleistung `value` + `VA`, Wirkleistung `value.power.active` + `W`, `*.percent` `value` + `%`; beschreibbar → `level`.
+63. **Verschwundene USV mit Karenz (E6)** — sofort `info.reachable=false`, gelöscht nach 3 Polls ohne sie in `LIST UPS`, beim ersten discover der Laufzeit sofort.
+64. **Werte außerhalb `common.states` bleiben unangetastet (E7)** — js-controller 7.2.2 prüft nur `min`/`max`; der Rohwert wird angezeigt.
+65. **Keepalive `VER` nach 30 s ohne Befehl (E8)** — upsd trennt einen stummen Client nach 60 s; Antwort und jedes `ERR` darauf werden still verworfen.
+66. **Treiber-Rückmeldung per TRACKING (E9)** — `SET TRACKING ON` nach `USERNAME`/`PASSWORD` bei jedem Aufbau, `GET TRACKING` alle 500 ms bis `SUCCESS`/Fehler, höchstens `commandTimeout`; ohne Tracking wie bisher.
+67. **Kein Messwert ist ein Zustand, Müll eine Warnung (E10)** — Zustandswörter (`LoadTooLow`, `NA` …) und Leerwerte in einem Zahlfeld → leerer Zahl-Datenpunkt auf debug; jeder andere Nicht-Zahl-Wert → leer + einmal warn je Variable.
+68. **Zugangsdaten mit `=` oder Steuer-/Nicht-ASCII-Zeichen werden abgewiesen, `#` nur gewarnt (E11)** — upsd und upsmon kürzen an `#` identisch.
+69. **Geräte-Piktogramm je dokumentiertem `device.type` (E12)** — gesetzt in `updateDeviceName` gegen das gespeicherte `common.icon` (Schnappschuss aus `pruneObjectTree`); ein unbekannter Typ lässt das Feld unangetastet.
+70. **Netzwerk-Zustände loggen auf debug (Audit 4/23, Flottenregel 2026-09-22)** — Verbindungsverlust, Wiederverbindung, DATA-STALE, DRIVER-NOT-CONNECTED; andere Codes warn mit Entprellung.
+71. **Umbenennen trägt Raum-/Funktionszuordnung über den Master-Helfer (Audit 5)** — `moveWithEnums` liest die Enums, löscht, schreibt dann; eine wegfallende `unit`/`desc` wird per `removeCommonFields` entfernt (D5).
+72. **Ein gescheitertes `LIST RW` löscht kein Schreib-Wissen (N19)** — das letzte bekannte bleibt; ändert sich die Schreibbarkeit, werden `write`/Rolle nachgezogen.
+73. **Befehlstasten folgen `LIST CMD` in beide Richtungen** — verschwundene Befehle werden gelöscht, eine USV ohne Befehle bekommt keinen Kanal `commands`.
+74. **⚠ nach einer Regel** — markiert genau die Befehle, die Strom nehmen, die Last ungeschützt lassen oder den Treiber beenden; ein Katalogtest leitet die Menge ab.
+75. **Katalog gegen beide NUT-Register geprüft** — `test/nut-names-2.8.5.json` (nut-names.txt + cmdvartab); jede Variable hat Namen, Erklärung oder begründeten Selbsterklär-Eintrag, jede Einheit wie im Register; `server.*` ausgenommen (nur `GET VAR`).
+76. **Fixtures aus Registern und Device Dump Library, nie vom Maintainer-Gerät** — Beschreibungen `ups.conf`-artig, Herkunft in `source`; der Harness wartet auf Werte und Inhaltsruhe, nicht auf eine Zeitspanne.
+77. **`GET DESC`/`GET CMDDESC` sind keine Datenpunkt-Erklärung** — Flottenregel „`desc` nie aus einem Laufzeitwert“; die Methoden bleiben Protokoll-Primitive.
+
+## Tests (938 unit = 919 Adapter + 19 Repo-Standards aus `iobroker-adapter-checks`; + 61 package = 999) + `npm run test:inventory` (Objekt-Inventar, 1291 Objekte aus 15 Fixtures; Aufstiegs-Suite mit Raum-Zuordnung und Umzugs-Saat)
 
 ## Versionshistorie
 
