@@ -362,7 +362,7 @@
   "descUpsLastNotify": "Laatste upsmon-gebeurtenis voor deze UPS",
   "descStatusRaw": "De status precies zoals de UPS die meldt",
   "descStatusDisplay": "Dezelfde status in woorden, voor weergave of bericht",
-  "descStatusSeverity": "Hoe ernstig de stroomsituatie is: 0 goed, 4 uitschakeling nabij",
+  "descStatusSeverity": "Hoe ernstig de stroomsituatie is: 0 in orde, 4 uitschakeling op handen; leeg zolang de UPS niet meldt waar de stroom vandaan komt",
   "descFlagOnline": "De UPS draait op netstroom",
   "descFlagOnBattery": "Netstroom weg — de accu draagt de belasting",
   "descFlagLowBattery": "De accu is bijna leeg — uitschakelen komt dichtbij",
@@ -623,5 +623,7 @@
   "descDriverVersionData": "Versie van de datatoewijzing die een generieke driver voor dit model gebruikt",
   "descUpsId": "Naam die een beheerder in de UPS zelf heeft opgeslagen — niet het serienummer",
   "descUpsVendorid": "USB-fabrikantcode die het apparaat meldt, hexadecimaal",
-  "descUpsProductid": "USB-productcode die het apparaat meldt, hexadecimaal"
+  "descUpsProductid": "USB-productcode die het apparaat meldt, hexadecimaal",
+  "commandsExecute": "Opdracht met parameter uitvoeren",
+  "descCommandsExecute": "Schrijf een opdracht die de UPS aanbiedt en zo nodig de waarde, bijv. load.off.delay 120 — dezelfde vorm als bij upscmd"
 }

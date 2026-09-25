@@ -362,7 +362,7 @@
   "descUpsLastNotify": "Dernier événement upsmon attribué à cet onduleur",
   "descStatusRaw": "L'état exactement tel que l'onduleur le rapporte",
   "descStatusDisplay": "Le même état en toutes lettres, pour affichage ou message",
-  "descStatusSeverity": "Gravité de la situation électrique : 0 bon, 4 arrêt imminent",
+  "descStatusSeverity": "Gravité de la situation électrique : 0 normal, 4 arrêt imminent ; vide tant que l'onduleur n'indique pas d'où vient son alimentation",
   "descFlagOnline": "L'onduleur fonctionne sur le secteur",
   "descFlagOnBattery": "Le secteur est absent — la batterie alimente la charge",
   "descFlagLowBattery": "La batterie est presque vide — l'arrêt approche",
@@ -623,5 +623,7 @@
   "descDriverVersionData": "Version de la table de correspondance qu'un pilote générique utilise pour ce modèle",
   "descUpsId": "Nom qu'un administrateur a enregistré dans l'onduleur — pas le numéro de série",
   "descUpsVendorid": "Identifiant USB du fabricant annoncé par l'appareil, en hexadécimal",
-  "descUpsProductid": "Identifiant USB du produit annoncé par l'appareil, en hexadécimal"
+  "descUpsProductid": "Identifiant USB du produit annoncé par l'appareil, en hexadécimal",
+  "commandsExecute": "Exécuter une commande avec paramètre",
+  "descCommandsExecute": "Écrivez une commande proposée par l'onduleur et, si besoin, sa valeur, p. ex. load.off.delay 120 — la même forme que pour upscmd"
 }

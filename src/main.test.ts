@@ -109,7 +109,7 @@ vi.mock("@iobroker/adapter-core", () => {
 });
 
 import { NutAdapter } from "./main";
-import { NutConnectionError, NutError, NutTimeoutError } from "./lib/nut-client";
+import { NutConnectionError, NutError, NutInputError, NutTimeoutError } from "./lib/nut-client";
 import type { NutClient } from "./lib/nut-client";
 import type { StateManager } from "./lib/state-manager";
 import type { NutVariable, UpsInfo } from "./lib/types";
@@ -147,9 +147,15 @@ interface FakeClient {
   setVar: ReturnType<typeof vi.fn>;
   setOnConnect: ReturnType<typeof vi.fn>;
   setOnFatal: ReturnType<typeof vi.fn>;
+  setOnDisconnect: ReturnType<typeof vi.fn>;
+  setTracking: ReturnType<typeof vi.fn>;
+  getTracking: ReturnType<typeof vi.fn>;
+  getVar: ReturnType<typeof vi.fn>;
   isConnected: boolean;
   /** Captured by setOnConnect — drive it to simulate the client's (re)connect. */
   onConnect: (() => void) | null;
+  /** Captured by setOnDisconnect — drive it to simulate a dropped connection. */
+  onDisconnect: (() => void) | null;
   onFatal: ((err: unknown) => void) | null;
 }
 
@@ -182,9 +188,17 @@ function makeFakeClient(upsList: UpsInfo[] = [{ name: "ups0", description: "Main
     setOnFatal: vi.fn((cb: (err: unknown) => void) => {
       fake.onFatal = cb;
     }),
+    setOnDisconnect: vi.fn((cb: () => void) => {
+      fake.onDisconnect = cb;
+    }),
+    // A server without TRACKING (older than 2.8) by default: the plain OK path.
+    setTracking: vi.fn(() => Promise.reject(new NutError("UNKNOWN-COMMAND"))),
+    getTracking: vi.fn(() => Promise.resolve("SUCCESS")),
+    getVar: vi.fn(() => Promise.resolve("")),
     isConnected: true,
     onConnect: null,
     onFatal: null,
+    onDisconnect: null,
   };
   return fake;
 }
@@ -201,6 +215,7 @@ interface FakeStateManager {
   markAllUnreachable: ReturnType<typeof vi.fn>;
   refreshInstanceObjects: ReturnType<typeof vi.fn>;
   writeUpsSummary: ReturnType<typeof vi.fn>;
+  commandsOf: ReturnType<typeof vi.fn>;
 }
 
 function makeFakeStateManager(): FakeStateManager {
@@ -216,6 +231,7 @@ function makeFakeStateManager(): FakeStateManager {
     markAllUnreachable: vi.fn(async () => {}),
     refreshInstanceObjects: vi.fn(async () => {}),
     writeUpsSummary: vi.fn(async () => {}),
+    commandsOf: vi.fn(() => undefined),
   };
 }
 
@@ -419,7 +435,9 @@ describe("onConnected — idempotent post-connect setup", () => {
     const { internal, stub } = await setupConnected();
     await internal.onConnected();
     expect(stub.timeouts).toHaveLength(1);
-    expect(logsOf(stub, "info").some(m => m.includes("Reconnected to NUT server"))).toBe(true);
+    // A reconnect is the connection coming back — a state, logged at debug (rule 2026-09-22).
+    expect(logsOf(stub, "debug").some(m => m.includes("Reconnected to NUT server"))).toBe(true);
+    expect(logsOf(stub, "info").some(m => m.includes("Reconnected to NUT server"))).toBe(false);
   });
 
   it("verifies ONCE per connection — one LOGIN on the first UPS covers the whole server", async () => {
@@ -687,7 +705,7 @@ describe("UPS name sanitization", () => {
 });
 
 describe("an absent NUT server reads as absent, not as a fault", () => {
-  it("warns instead of erroring when the client reports the connection is down", async () => {
+  it("reports an unreachable server as a state, not as an error (rule 2026-09-22)", async () => {
     // What the persistent client really hands the poll while it is reconnecting. This used to
     // classify as UNKNOWN and write `error: Poll failed: Connection closed` into the ioBroker log
     // on every NUT-server restart — right next to the warn line that already said the same thing.
@@ -699,14 +717,18 @@ describe("an absent NUT server reads as absent, not as a fault", () => {
     await s.internal.poll();
 
     expect(logsOf(s.stub, "error")).toEqual([]);
-    const warns = logsOf(s.stub, "warn").filter(m => m.includes("Cannot reach NUT server"));
-    expect(warns).toHaveLength(1);
-    expect(warns[0]).toContain("Connection closed");
+    // Offline is a state — info.connection and every info.reachable carry it; the log line is debug.
+    expect(logsOf(s.stub, "warn")).toEqual([]);
+    const lines = logsOf(s.stub, "debug").filter(m => m.includes("Cannot reach NUT server"));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain("Connection closed");
+    expect(s.stub.states.get("nut2.0.info.connection")).toEqual({ val: false, ack: true });
     expect(s.internal.lastErrorCode).toBe("NETWORK");
 
-    // Repeats stay at debug — one line per outage, not one per poll.
+    // Repeats stay at debug too — "ongoing", never a warn.
     await s.internal.poll();
-    expect(logsOf(s.stub, "warn").filter(m => m.includes("Cannot reach NUT server"))).toHaveLength(1);
+    expect(logsOf(s.stub, "warn")).toEqual([]);
+    expect(logsOf(s.stub, "debug").some(m => m.includes("Poll failed (ongoing)"))).toBe(true);
   });
 
   it("treats a command timeout the same way — the server is not answering, that is not our fault", async () => {
@@ -715,7 +737,8 @@ describe("an absent NUT server reads as absent, not as a fault", () => {
     s.stub.logs.length = 0;
     await s.internal.poll();
     expect(logsOf(s.stub, "error")).toEqual([]);
-    expect(logsOf(s.stub, "warn").some(m => m.includes("Cannot reach NUT server"))).toBe(true);
+    expect(logsOf(s.stub, "warn")).toEqual([]);
+    expect(logsOf(s.stub, "debug").some(m => m.includes("Cannot reach NUT server"))).toBe(true);
   });
 
   it("still calls a genuinely unexpected failure an error", async () => {
@@ -872,7 +895,7 @@ describe("poll", () => {
     expect(logsOf(s.stub, "warn")).toEqual([]);
   });
 
-  it("per-UPS failure: reachable=false, warn once, debug on repeat, recovery info", async () => {
+  it("per-UPS failure: reachable=false, warn once, debug on repeat, recovery at debug", async () => {
     const s = await setupConnected();
     s.client.listVar.mockRejectedValue(new Error("UPS gone"));
 
@@ -886,15 +909,24 @@ describe("poll", () => {
 
     s.client.listVar.mockResolvedValue([{ name: "ups.status", value: "OL" }]);
     await s.internal.poll();
-    expect(logsOf(s.stub, "info").some(m => m.includes("UPS 'ups0' recovered"))).toBe(true);
+    // Coming back is a state (info.reachable) — debug, not info.
+    expect(logsOf(s.stub, "debug").some(m => m.includes("UPS 'ups0' recovered"))).toBe(true);
+    expect(logsOf(s.stub, "info").some(m => m.includes("recovered"))).toBe(false);
     expect(s.stub.states.get("nut2.0.ups0.info.reachable")).toEqual({ val: true, ack: true });
   });
 
-  it("DATA-STALE gets its own friendly warning (states kept)", async () => {
+  it("DATA-STALE is a state: named on debug every time, never a warning (states kept)", async () => {
     const s = await setupConnected();
     s.client.listVar.mockRejectedValue(new NutError("DATA-STALE"));
     await s.internal.poll();
-    expect(logsOf(s.stub, "warn").some(m => m.includes("driver reports stale data"))).toBe(true);
+    await s.internal.poll();
+    expect(logsOf(s.stub, "warn")).toEqual([]);
+    expect(logsOf(s.stub, "debug").filter(m => m.includes("driver reports stale data"))).toHaveLength(2);
+    expect(s.stub.states.get("nut2.0.ups0.info.reachable")).toEqual({ val: false, ack: true });
+    s.client.listVar.mockRejectedValue(new NutError("DRIVER-NOT-CONNECTED"));
+    await s.internal.poll();
+    expect(logsOf(s.stub, "debug").some(m => m.includes("driver not connected"))).toBe(true);
+    expect(logsOf(s.stub, "warn")).toEqual([]);
   });
 
   it("enriches enum/range metadata exactly once per connection", async () => {
@@ -942,7 +974,7 @@ describe("poll", () => {
     expect(s.stub.states.get("nut2.0.info.connection")).toEqual({ val: false, ack: true });
   });
 
-  it("whole-poll failure: classify, warn once for NETWORK, restore info on recovery", async () => {
+  it("whole-poll failure: classify, NETWORK on debug, restored on debug", async () => {
     const s = await setupConnected();
     // Force a failure OUTSIDE the per-UPS loop: setStateChangedAsync for info.connection throws…
     // simpler: make discoveredUps iteration throw via a poisoned client on the outer await.
@@ -964,16 +996,17 @@ describe("poll", () => {
     };
 
     await s.internal.poll();
-    expect(logsOf(s.stub, "warn").some(m => m.includes("Cannot reach NUT server"))).toBe(true);
+    expect(logsOf(s.stub, "debug").some(m => m.includes("Cannot reach NUT server"))).toBe(true);
     expect(s.internal.lastErrorCode).toBe("NETWORK");
 
     await s.internal.poll();
-    // Repeat of the same class → debug, no second warn.
-    expect(logsOf(s.stub, "warn").filter(m => m.includes("Cannot reach NUT server"))).toHaveLength(1);
+    // Repeat of the same class → "ongoing", still no warn.
+    expect(logsOf(s.stub, "debug").some(m => m.includes("Poll failed (ongoing)"))).toBe(true);
+    expect(logsOf(s.stub, "warn")).toEqual([]);
 
     shouldThrow = false;
     await s.internal.poll();
-    expect(logsOf(s.stub, "info").some(m => m === "Connection restored")).toBe(true);
+    expect(logsOf(s.stub, "debug").some(m => m === "Connection restored")).toBe(true);
     expect(s.internal.lastErrorCode).toBe("");
   });
 });
@@ -1002,19 +1035,51 @@ describe("UPS list changes on the NUT server at runtime", () => {
     expect(s.sm.ensureUpsDevice).toHaveBeenCalledWith("ups1", "New UPS");
     expect(s.sm.createCommandButtons).toHaveBeenCalledWith("ups1", expect.anything());
     expect(s.stub.states.get("nut2.0.ups1.info.reachable")).toEqual({ val: true, ack: true });
-    expect(logsOf(s.stub, "info").some(m => m.includes("UPS list on the NUT server changed: ups0, ups1"))).toBe(true);
+    expect(logsOf(s.stub, "info").some(m => m.includes("New UPS on the NUT server: ups1"))).toBe(true);
   });
 
-  it("a UPS removed on the server is cleaned up on the next poll", async () => {
+  it("C19: a UPS removed on the server is cleaned up only after three polls without it", async () => {
+    // One poll without a UPS (a typo in ups.conf and a reload, a driver restart) must not cost the
+    // rooms, functions and recordings of all its datapoints — deleting an object takes it out of
+    // every enum.
+    const s = await setupConnected({}, [
+      { name: "ups0", description: "Main UPS" },
+      { name: "ups1", description: "Second UPS" },
+    ]);
+    s.client.listUps.mockResolvedValue([{ name: "ups0", description: "Main UPS" }]);
+    s.sm.pruneObjectTree.mockClear();
+    await s.internal.poll();
+    await s.internal.poll();
+    expect([...s.internal.discoveredUps.keys()]).toEqual(["ups0", "ups1"]);
+    expect(s.sm.pruneObjectTree).not.toHaveBeenCalled();
+    expect(s.stub.states.get("nut2.0.ups1.info.reachable")).toEqual({ val: false, ack: true });
+    expect(s.sm.writeUpsSummary).toHaveBeenLastCalledWith(2, 1);
+
+    await s.internal.poll();
+    expect([...s.internal.discoveredUps.keys()]).toEqual(["ups0"]);
+    expect(s.sm.pruneObjectTree).toHaveBeenLastCalledWith(new Set(["ups0"]));
+    expect(s.sm.writeUpsSummary).toHaveBeenLastCalledWith(1, 1);
+    expect(logsOf(s.stub, "info").some(m => m.includes("'ups1' is no longer listed"))).toBe(true);
+  });
+
+  it("C19: a UPS that comes back within the grace period keeps everything", async () => {
     const s = await setupConnected({}, [
       { name: "ups0", description: "Main UPS" },
       { name: "ups1", description: "Second UPS" },
     ]);
     s.client.listUps.mockResolvedValue([{ name: "ups0", description: "Main UPS" }]);
     await s.internal.poll();
-    expect([...s.internal.discoveredUps.keys()]).toEqual(["ups0"]);
-    expect(s.sm.pruneObjectTree).toHaveBeenLastCalledWith(new Set(["ups0"]));
-    expect(s.sm.writeUpsSummary).toHaveBeenLastCalledWith(1, 1);
+    s.client.listUps.mockResolvedValue([
+      { name: "ups0", description: "Main UPS" },
+      { name: "ups1", description: "Second UPS" },
+    ]);
+    s.sm.pruneObjectTree.mockClear();
+    await s.internal.poll();
+    await s.internal.poll();
+    await s.internal.poll();
+    expect([...s.internal.discoveredUps.keys()]).toEqual(["ups0", "ups1"]);
+    expect(s.sm.pruneObjectTree).not.toHaveBeenCalled();
+    expect(s.stub.states.get("nut2.0.ups1.info.reachable")).toEqual({ val: true, ack: true });
   });
 
   it("a LIST UPS failure fails the poll as a whole (no half-updated tree)", async () => {
@@ -1109,13 +1174,16 @@ describe("onStateChange — command and SET VAR gates", () => {
     expect(logsOf(s.stub, "warn").some(m => m.includes("SET VAR blocked"))).toBe(true);
   });
 
-  it("a failing SET VAR logs an error and does NOT ack", async () => {
+  it("C11: a failing SET VAR logs an error and shows the value the server really holds", async () => {
     const s = await setupConnected({ enableSetVar: true });
     await withWritable(s, "ups.delay.shutdown");
     s.client.setVar.mockRejectedValue(new NutError("SET-FAILED"));
+    s.client.getVar.mockResolvedValue("20");
     await s.internal.onStateChange("nut2.0.ups0.ups.delay-shutdown", { val: 30, ack: false });
     expect(logsOf(s.stub, "error").some(m => m.includes("SET VAR failed"))).toBe(true);
-    expect(s.stub.states.has("nut2.0.ups0.ups.delay-shutdown")).toBe(false);
+    // Not the refused 30 — the 20 GET VAR read back, acknowledged.
+    expect(s.client.getVar).toHaveBeenCalledWith("ups0", "ups.delay.shutdown");
+    expect(s.stub.states.get("nut2.0.ups0.ups.delay-shutdown")).toEqual({ val: 20, ack: true });
   });
 
   it("ignores writes to the adapter-owned info/status channels instead of trying SET VAR", async () => {
@@ -1193,7 +1261,7 @@ describe("notify trigger — the upsmon doorbell", () => {
     expect(s.stub.states.get("nut2.0.ups0.info.notify")).toEqual({ val: "ONBATT", ack: true });
     expect(s.stub.states.get("nut2.0.notify")).toEqual({ val: "ONBATT ups0", ack: true });
     expect(s.client.listVar).toHaveBeenCalled();
-    expect(logsOf(s.stub, "info").some(m => m.includes("upsmon event 'ONBATT'"))).toBe(true);
+    expect(logsOf(s.stub, "info").some(m => m.includes('upsmon event "ONBATT"'))).toBe(true);
   });
 
   it("matches the real NUT name (with @host) even when the object ID is sanitized", async () => {
@@ -1223,7 +1291,7 @@ describe("notify trigger — the upsmon doorbell", () => {
     expect(s.stub.states.has("nut2.0.ghost.info.notify")).toBe(false);
     expect(s.stub.states.get("nut2.0.notify")).toEqual({ val: "ONLINE ghost", ack: true });
     // Warn once per unknown name — the repeat goes to debug.
-    expect(logsOf(s.stub, "warn").filter(m => m.includes("unknown UPS 'ghost'"))).toHaveLength(1);
+    expect(logsOf(s.stub, "warn").filter(m => m.includes('unknown UPS "ghost"'))).toHaveLength(1);
   });
 
   it("an empty write is a bare manual refresh: poll yes, event no, info-noise no", async () => {
@@ -1663,7 +1731,7 @@ describe("edges that had no test", () => {
 
     await s.internal.onStateChange("nut2.0.ups0.commands.beeper-enable", { val: true, ack: false });
 
-    expect(logsOf(s.stub, "debug").some(m => m.includes("no client connection"))).toBe(true);
+    expect(logsOf(s.stub, "debug").some(m => m.includes("not connected to the NUT server"))).toBe(true);
   });
 
   it("catches a failure inside onStateChange — an unhandled rejection crash-loops the instance", async () => {
@@ -1886,5 +1954,353 @@ describe("audit 2026-09-12 — writes that never belonged on the wire", () => {
   it("stays silent about credentials when SET VAR is off", async () => {
     const s = await setupConnected({ enableSetVar: false, username: "", password: "" });
     expect(logsOf(s.stub, "warn").some(m => m.includes("SET VAR") && m.includes("no credentials"))).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Audit 2026-09-25 — runtime (plan package C)
+// ---------------------------------------------------------------------------
+
+/** A promise the test resolves or rejects by hand. */
+function deferred<T = void>(): { promise: Promise<T>; resolve: (v: T) => void; reject: (e: unknown) => void } {
+  let resolve!: (v: T) => void;
+  let reject!: (e: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+describe("C1 the connection dropping during the setup is a state, not an error", () => {
+  it("logs a NetworkError in onConnected at debug", async () => {
+    const s = setup();
+    await s.internal.onReady();
+    s.client.listUps.mockRejectedValue(new NutConnectionError("Connection closed"));
+    await s.internal.onConnected();
+    expect(logsOf(s.stub, "error")).toEqual([]);
+    expect(logsOf(s.stub, "debug").some(m => m.includes("Post-connect setup interrupted"))).toBe(true);
+  });
+
+  it("still reports an unexpected failure as an error", async () => {
+    const s = setup();
+    await s.internal.onReady();
+    s.client.listUps.mockRejectedValue(new Error("boom"));
+    await s.internal.onConnected();
+    expect(logsOf(s.stub, "error").some(m => m.includes("Post-connect setup failed: boom"))).toBe(true);
+  });
+});
+
+describe("C2 an unload during a poll writes nothing after the callback", () => {
+  it("does not mark the UPS reachable nor write the summary once onUnload ran", async () => {
+    const s = await setupConnected();
+    const gate = deferred();
+    s.sm.updateVariables.mockImplementation(() => gate.promise);
+    s.sm.writeUpsSummary.mockClear();
+    const running = s.internal.poll();
+    await vi.waitFor(() => expect(s.sm.updateVariables).toHaveBeenCalled());
+    const callback = vi.fn();
+    s.internal.onUnload(callback);
+    await vi.waitFor(() => expect(callback).toHaveBeenCalledTimes(1));
+    gate.resolve();
+    await running;
+    expect(s.stub.states.get("nut2.0.ups0.info.reachable")).toEqual({ val: false, ack: true });
+    expect(s.stub.states.get("nut2.0.info.allUpsReachable")).toEqual({ val: false, ack: true });
+    expect(s.sm.writeUpsSummary).not.toHaveBeenCalled();
+  });
+
+  it("does not warn about its own teardown when a UPS read is cancelled", async () => {
+    const s = await setupConnected();
+    const gate = deferred<NutVariable[]>();
+    s.client.listVar.mockImplementation(() => gate.promise);
+    s.stub.logs.length = 0;
+    const running = s.internal.poll();
+    await vi.waitFor(() => expect(s.client.listVar).toHaveBeenCalled());
+    s.internal.onUnload(vi.fn());
+    gate.reject(new NutConnectionError("Client cancelled"));
+    await running;
+    expect(logsOf(s.stub, "warn")).toEqual([]);
+    expect(logsOf(s.stub, "error")).toEqual([]);
+  });
+});
+
+describe("C3 a connection lost in the middle of the UPS loop is reported once", () => {
+  it("leaves the loop instead of warning for every further UPS", async () => {
+    const s = await setupConnected({}, [
+      { name: "ups0", description: "" },
+      { name: "ups1", description: "" },
+    ]);
+    s.client.listVar.mockClear();
+    s.client.listVar.mockRejectedValue(new NutConnectionError("Connection closed"));
+    s.stub.logs.length = 0;
+    await s.internal.poll();
+    expect(s.client.listVar).toHaveBeenCalledTimes(1);
+    expect(logsOf(s.stub, "warn")).toEqual([]);
+    expect(s.internal.lastErrorCode).toBe("NETWORK");
+  });
+});
+
+describe("C4 a credential check that could not run is not a rejection", () => {
+  it("says 'could not verify' for a network error and keeps the real rejection audible", async () => {
+    const s = setup({ username: "u", password: "p" });
+    await s.internal.onReady();
+    s.probe.connect.mockRejectedValue(Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }));
+    await s.internal.onConnected();
+    expect(logsOf(s.stub, "warn").some(m => m.includes("rejected the credentials"))).toBe(false);
+    expect(logsOf(s.stub, "info").some(m => m.includes("credentials for u not verified"))).toBe(true);
+
+    // The real rejection on the next connect is still a warning, not swallowed by the first line.
+    s.probe.connect.mockResolvedValue(undefined);
+    s.probe.login.mockRejectedValue(new NutError("ACCESS-DENIED"));
+    await s.internal.onConnected();
+    expect(logsOf(s.stub, "warn").some(m => m.includes("rejected the credentials"))).toBe(true);
+  });
+
+  it("warns once about a # in a credential", async () => {
+    const s = setup({ username: "u", password: "ab#cd" });
+    await s.internal.onReady();
+    await s.internal.onConnected();
+    await s.internal.onConnected();
+    expect(logsOf(s.stub, "warn").filter(m => m.includes('contains "#"'))).toHaveLength(1);
+  });
+
+  it("C22: a credential the protocol cannot carry is warned about once, not on every reconnect", async () => {
+    const s = setup({ username: "u", password: "p" });
+    await s.internal.onReady();
+    s.client.authenticate.mockRejectedValue(new NutInputError("The NUT password contains ..."));
+    await s.internal.onConnected();
+    await s.internal.onConnected();
+    expect(logsOf(s.stub, "warn").filter(m => m.includes("Could not send the credentials"))).toHaveLength(1);
+  });
+});
+
+describe("C5 after a fatal TLS error nothing polls — also not through notify", () => {
+  it("records the notify event but does not poll or claim to retry", async () => {
+    const s = await setupConnected({ useTls: true });
+    s.client.onFatal?.(new NutError("TLS-CA-UNREADABLE"));
+    s.client.listUps.mockClear();
+    s.stub.logs.length = 0;
+    await s.internal.onStateChange("nut2.0.notify", { val: "ONBATT ups0", ack: false });
+    expect(s.stub.states.get("nut2.0.notify")).toEqual({ val: "ONBATT ups0", ack: true });
+    expect(s.client.listUps).not.toHaveBeenCalled();
+    expect(logsOf(s.stub, "warn").some(m => m.includes("will keep retrying"))).toBe(false);
+  });
+});
+
+describe("C7 a dropped connection is unreachable at once", () => {
+  it("sets info.connection and every info.reachable to false when the client reports the drop", async () => {
+    const s = await setupConnected();
+    expect(s.stub.states.get("nut2.0.ups0.info.reachable")).toEqual({ val: true, ack: true });
+    s.client.onDisconnect?.();
+    await vi.waitFor(() => expect(s.stub.states.get("nut2.0.ups0.info.reachable")).toEqual({ val: false, ack: true }));
+    expect(s.stub.states.get("nut2.0.info.connection")).toEqual({ val: false, ack: true });
+  });
+});
+
+describe("C9 LIST RANGE with several ranges gives the span", () => {
+  it("uses the lowest minimum and the highest maximum", async () => {
+    const s = await setupConnected({ enableSetVar: true });
+    s.client.listRw.mockResolvedValue([{ name: "input.transfer.low", value: "95" }]);
+    s.client.listRange.mockResolvedValue([
+      { min: "90", max: "100" },
+      { min: "102", max: "105" },
+    ]);
+    s.internal.enrichedUps.clear();
+    await s.internal.poll();
+    expect(s.sm.enrichStateMetadata).toHaveBeenCalledWith("ups0.input.transfer-low", { min: 90, max: 105 });
+  });
+});
+
+describe("C10/C11 SET VAR confirms in the datapoint's type", () => {
+  it("acknowledges a string write to a number variable as a number", async () => {
+    const s = await setupConnected({ enableSetVar: true });
+    await withWritable(s, "ups.delay.shutdown");
+    await s.internal.onStateChange("nut2.0.ups0.ups.delay-shutdown", { val: "30", ack: false });
+    expect(s.stub.states.get("nut2.0.ups0.ups.delay-shutdown")).toEqual({ val: 30, ack: true });
+  });
+});
+
+describe("C12 command buttons of a UPS whose driver was not there yet", () => {
+  it("are created on the next successful poll, and the first failure is only debug", async () => {
+    const s = setup({ enableCommands: true, username: "u", password: "p" });
+    await s.internal.onReady();
+    s.client.listCmd.mockRejectedValueOnce(new NutError("DRIVER-NOT-CONNECTED"));
+    await s.internal.onConnected();
+    expect(logsOf(s.stub, "warn").some(m => m.includes("No command buttons"))).toBe(false);
+    await vi.waitFor(() => expect(s.sm.createCommandButtons).toHaveBeenCalledWith("ups0", expect.anything()));
+  });
+});
+
+describe("C13 an enrichment cut off by the connection is repeated", () => {
+  it("does not mark the UPS enriched when LIST ENUM/RANGE lost the connection", async () => {
+    const s = await setupConnected({ enableSetVar: true });
+    s.client.listRw.mockResolvedValue([{ name: "ups.delay.shutdown", value: "20" }]);
+    s.client.listRange.mockRejectedValueOnce(new NutTimeoutError("LIST RANGE"));
+    s.internal.enrichedUps.clear();
+    await s.internal.poll();
+    expect(s.internal.enrichedUps.has("ups0")).toBe(false);
+    await s.internal.poll();
+    expect(s.internal.enrichedUps.has("ups0")).toBe(true);
+  });
+});
+
+describe("C14 commands.execute and driver confirmation", () => {
+  it("sends a command with its parameter and acknowledges what was sent", async () => {
+    const s = await setupConnected({ enableCommands: true, username: "u", password: "p" });
+    s.sm.commandsOf.mockReturnValue(new Set(["load.off.delay"]));
+    await s.internal.onStateChange("nut2.0.ups0.commands.execute", { val: " load.off.delay  120 ", ack: false });
+    expect(s.client.instCmd).toHaveBeenCalledWith("ups0", "load.off.delay", "120");
+    expect(s.stub.states.get("nut2.0.ups0.commands.execute")).toEqual({ val: "load.off.delay  120", ack: true });
+  });
+
+  it("refuses a command the UPS does not offer, or extra words", async () => {
+    const s = await setupConnected({ enableCommands: true, username: "u", password: "p" });
+    s.sm.commandsOf.mockReturnValue(new Set(["load.off.delay"]));
+    await s.internal.onStateChange("nut2.0.ups0.commands.execute", { val: "shutdown.return", ack: false });
+    await s.internal.onStateChange("nut2.0.ups0.commands.execute", { val: "load.off.delay 1 2", ack: false });
+    expect(s.client.instCmd).not.toHaveBeenCalled();
+    expect(s.stub.states.get("nut2.0.ups0.commands.execute")).toEqual({ val: "", ack: true });
+    expect(logsOf(s.stub, "warn").filter(m => m.includes("commands.execute"))).toHaveLength(2);
+  });
+
+  it("reports 'executed' only after the driver confirmed it (TRACKING)", async () => {
+    const s = setup({ enableCommands: true, username: "u", password: "p" });
+    s.client.setTracking.mockResolvedValue(undefined);
+    await s.internal.onReady();
+    await s.internal.onConnected();
+    expect(s.client.setTracking).toHaveBeenCalledWith(true);
+    s.client.instCmd.mockResolvedValue("id-1");
+    s.client.getTracking.mockResolvedValue("SUCCESS");
+    await s.internal.onStateChange("nut2.0.ups0.commands.beeper-enable", { val: true, ack: false });
+    expect(s.client.getTracking).toHaveBeenCalledWith("id-1");
+    expect(logsOf(s.stub, "info").some(m => m.includes("Command executed: beeper.enable"))).toBe(true);
+  });
+
+  it("reports a command the driver refused as failed", async () => {
+    const s = setup({ enableCommands: true, username: "u", password: "p" });
+    s.client.setTracking.mockResolvedValue(undefined);
+    await s.internal.onReady();
+    await s.internal.onConnected();
+    s.client.instCmd.mockResolvedValue("id-2");
+    s.client.getTracking.mockRejectedValue(new NutError("FAILED"));
+    await s.internal.onStateChange("nut2.0.ups0.commands.driver-killpower", { val: true, ack: false });
+    expect(logsOf(s.stub, "error").some(m => m.includes("Command failed: driver.killpower"))).toBe(true);
+    expect(logsOf(s.stub, "info").some(m => m.includes("Command executed"))).toBe(false);
+  });
+
+  it("says 'sent, not confirmed' when upsd no longer knows the tracking id", async () => {
+    const s = setup({ enableCommands: true, username: "u", password: "p" });
+    s.client.setTracking.mockResolvedValue(undefined);
+    await s.internal.onReady();
+    await s.internal.onConnected();
+    s.client.instCmd.mockResolvedValue("id-3");
+    s.client.getTracking.mockRejectedValue(new NutError("UNKNOWN"));
+    await s.internal.onStateChange("nut2.0.ups0.commands.beeper-enable", { val: true, ack: false });
+    expect(
+      logsOf(s.stub, "info").some(m => m.includes("Command sent: beeper.enable") && m.includes("not confirmed")),
+    ).toBe(true);
+  });
+
+  it("works without TRACKING on a server that refuses it", async () => {
+    const s = await setupConnected({ enableCommands: true, username: "u", password: "p" });
+    await s.internal.onStateChange("nut2.0.ups0.commands.beeper-enable", { val: true, ack: false });
+    expect(s.client.getTracking).not.toHaveBeenCalled();
+    expect(logsOf(s.stub, "info").some(m => m.includes("Command executed: beeper.enable"))).toBe(true);
+  });
+});
+
+describe("C15 driver.flag.* is never written", () => {
+  it("ignores a write even when LIST RW lists the flag", async () => {
+    const s = await setupConnected({ enableSetVar: true, username: "u", password: "p" });
+    await withWritable(s, "driver.flag.ignorelb");
+    await s.internal.onStateChange("nut2.0.ups0.driver.flag-ignorelb", { val: true, ack: false });
+    expect(s.client.setVar).not.toHaveBeenCalled();
+  });
+});
+
+describe("C16 a write while not connected is not an error", () => {
+  it("logs at debug and resets a command button", async () => {
+    const s = await setupConnected({ enableCommands: true, username: "u", password: "p" });
+    s.client.isConnected = false;
+    await s.internal.onStateChange("nut2.0.ups0.commands.beeper-enable", { val: true, ack: false });
+    expect(s.client.instCmd).not.toHaveBeenCalled();
+    expect(logsOf(s.stub, "error")).toEqual([]);
+    expect(s.stub.states.get("nut2.0.ups0.commands.beeper-enable")).toEqual({ val: false, ack: true });
+  });
+});
+
+describe("C17 discover runs one at a time", () => {
+  it("a second discover waits for the first — no half-built list is ever pruned", async () => {
+    const s = await setupConnected({}, [
+      { name: "a", description: "" },
+      { name: "b", description: "" },
+    ]);
+    const gate = deferred();
+    s.sm.ensureUpsDevice.mockImplementationOnce(() => gate.promise);
+    s.sm.pruneObjectTree.mockClear();
+    const first = s.internal.discover();
+    const second = s.internal.discover();
+    await new Promise(r => setImmediate(r));
+    expect(s.sm.pruneObjectTree).not.toHaveBeenCalled();
+    gate.resolve();
+    await first;
+    await second;
+    for (const call of s.sm.pruneObjectTree.mock.calls) {
+      expect(call[0]).toEqual(new Set(["a", "b"]));
+    }
+  });
+});
+
+describe("C18/C20 object ids for UPS names", () => {
+  it("never gives a UPS the id of the adapter's own info channel or notify trigger", async () => {
+    const s = await setupConnected({}, [
+      { name: "info", description: "" },
+      { name: "notify", description: "" },
+    ]);
+    expect([...s.internal.discoveredUps.keys()].sort()).toEqual(["info-2", "notify-2"]);
+    expect(logsOf(s.stub, "warn").filter(m => m.includes("reserved"))).toHaveLength(2);
+    await s.internal.discover();
+    expect(logsOf(s.stub, "warn").filter(m => m.includes("reserved"))).toHaveLength(2);
+  });
+
+  it("hands out collision suffixes by name, not by the server's order", async () => {
+    const one = await setupConnected({}, [
+      { name: "u p", description: "" },
+      { name: "u.p", description: "" },
+    ]);
+    const two = await setupConnected({}, [
+      { name: "u.p", description: "" },
+      { name: "u p", description: "" },
+    ]);
+    const idsOf = (s: Setup): Record<string, string> =>
+      Object.fromEntries([...s.internal.discoveredUps].map(([id, ups]) => [ups.name, id]));
+    expect(idsOf(one)).toEqual(idsOf(two));
+  });
+});
+
+describe("C21 the connection test runs on the adapter's managed timers", () => {
+  it("hands this.setTimeout to the test client", async () => {
+    const s = await setupConnected();
+    const before = s.stub.timeouts.length;
+    await s.internal.onMessage({
+      command: "checkConnection",
+      message: { host: "127.0.0.1", port: 1, commandTimeout: 1 },
+      from: "system.adapter.admin.0",
+      callback: { message: {}, id: 1, ack: false, time: Date.now() },
+      _id: 1,
+    });
+    // The connect deadline of the test client is an adapter timer.
+    expect(s.stub.timeouts.length).toBeGreaterThan(before);
+  });
+});
+
+describe("C23 a failed LIST RW keeps what the last poll knew", () => {
+  it("passes the previous writable set on instead of an empty one", async () => {
+    const s = await setupConnected({ enableSetVar: true });
+    await withWritable(s, "ups.delay.shutdown");
+    s.client.listRw.mockRejectedValue(new NutTimeoutError("LIST RW"));
+    s.sm.updateVariables.mockClear();
+    await s.internal.poll();
+    expect(s.sm.updateVariables).toHaveBeenCalledWith("ups0", expect.anything(), new Set(["ups.delay.shutdown"]));
   });
 });

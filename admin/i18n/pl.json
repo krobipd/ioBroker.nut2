@@ -362,7 +362,7 @@
   "descUpsLastNotify": "Ostatnie zdarzenie upsmon przypisane do tego UPS",
   "descStatusRaw": "Stan dokładnie tak, jak podaje go UPS",
   "descStatusDisplay": "Ten sam stan słowami — do wyświetlenia lub wiadomości",
-  "descStatusSeverity": "Jak poważna jest sytuacja zasilania: 0 dobrze, 4 wyłączenie tuż-tuż",
+  "descStatusSeverity": "Jak poważna jest sytuacja zasilania: 0 w porządku, 4 wyłączenie nieuchronne; puste, dopóki UPS nie poda, skąd pochodzi zasilanie",
   "descFlagOnline": "UPS pracuje z sieci",
   "descFlagOnBattery": "Brak sieci — obciążenie podtrzymuje akumulator",
   "descFlagLowBattery": "Akumulator prawie pusty — wyłączenie blisko",
@@ -623,5 +623,7 @@
   "descDriverVersionData": "Wersja mapowania danych, którego sterownik ogólny używa dla tego modelu",
   "descUpsId": "Nazwa zapisana w samym UPS przez administratora — nie numer seryjny",
   "descUpsVendorid": "Identyfikator producenta USB zgłaszany przez urządzenie, szesnastkowo",
-  "descUpsProductid": "Identyfikator produktu USB zgłaszany przez urządzenie, szesnastkowo"
+  "descUpsProductid": "Identyfikator produktu USB zgłaszany przez urządzenie, szesnastkowo",
+  "commandsExecute": "Wykonaj polecenie z parametrem",
+  "descCommandsExecute": "Wpisz polecenie oferowane przez UPS i w razie potrzeby jego wartość, np. load.off.delay 120 — w tej samej formie co w upscmd"
 }

@@ -193,11 +193,11 @@ describe("status-parser", () => {
     });
 
     it("should be 1 for BOOST (Info)", () => {
-      expect(parseStatus("BOOST").severity).toBe(1);
+      expect(parseStatus("OL BOOST").severity).toBe(1);
     });
 
     it("should be 1 for CAL (Info)", () => {
-      expect(parseStatus("CAL").severity).toBe(1);
+      expect(parseStatus("OL CAL").severity).toBe(1);
     });
 
     it("should be 2 for OB without LB (Warning)", () => {
@@ -205,7 +205,7 @@ describe("status-parser", () => {
     });
 
     it("should be 2 for RB (Warning)", () => {
-      expect(parseStatus("RB").severity).toBe(2);
+      expect(parseStatus("OL RB").severity).toBe(2);
     });
 
     it("should be 2 for BYPASS (Warning)", () => {
@@ -234,14 +234,14 @@ describe("status-parser", () => {
   // Edge cases
   // -----------------------------------------------------------------------
   describe("edge cases", () => {
-    it("should handle empty string", () => {
+    it("E1: an empty status says nothing about the power source — severity is empty, not OK", () => {
       const r = parseStatus("");
-      expect(r.severity).toBe(0);
+      expect(r.severity).toBeNull();
       expect(Object.values(r.flags).every(v => v === false)).toBe(true);
     });
 
     it("should handle whitespace-only string", () => {
-      expect(parseStatus("   ").severity).toBe(0);
+      expect(parseStatus("   ").severity).toBeNull();
     });
 
     it("should ignore unknown flags", () => {
@@ -374,5 +374,40 @@ describe("status-parser", () => {
         expect(key in r.flags).toBe(true);
       }
     });
+  });
+});
+
+describe("E1 severity without a power source (audit 30)", () => {
+  it.each(["OFF", "WAIT", "RB", "BOOST", "CAL", "CHRG", "ALARM"])("%s alone → no severity", status => {
+    expect(parseStatus(status).severity).toBeNull();
+  });
+
+  it("keeps BYPASS-only (apc-mib) at 2 and FSD-only (upsd prefix) at 4", () => {
+    expect(parseStatus("BYPASS").severity).toBe(2);
+    expect(parseStatus("FSD").severity).toBe(4);
+  });
+
+  it("OFF next to a power source keeps the power-source severity", () => {
+    expect(parseStatus("OL OFF").severity).toBe(0);
+    expect(parseStatus("OB OFF").severity).toBe(2);
+  });
+});
+
+describe("N15 battery.charger.status only fills in when the status says nothing about charging", () => {
+  it("does not add charging next to a DISCHRG flag", () => {
+    const r = parseStatus("OB DISCHRG", "charging");
+    expect(r.flags.discharging).toBe(true);
+    expect(r.flags.charging).toBe(false);
+  });
+
+  it("does not add discharging next to a CHRG flag", () => {
+    const r = parseStatus("OL CHRG", "discharging");
+    expect(r.flags.charging).toBe(true);
+    expect(r.flags.discharging).toBe(false);
+  });
+
+  it("still fills in when the flags are absent", () => {
+    expect(parseStatus("OL", "charging").flags.charging).toBe(true);
+    expect(parseStatus("OB", "discharging").flags.discharging).toBe(true);
   });
 });

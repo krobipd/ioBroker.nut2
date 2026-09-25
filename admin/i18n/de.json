@@ -362,7 +362,7 @@
   "descUpsLastNotify": "Letztes upsmon-Ereignis, das dieser USV zugeordnet wurde",
   "descStatusRaw": "Der Status genau so, wie die USV ihn meldet",
   "descStatusDisplay": "Derselbe Status in Worten, für Anzeige oder Nachricht",
-  "descStatusSeverity": "Wie ernst die Stromlage ist: 0 gut, 4 Abschaltung steht bevor",
+  "descStatusSeverity": "Wie ernst die Stromlage ist: 0 gut, 4 Abschaltung steht bevor; leer, solange die USV nicht meldet, woher ihr Strom kommt",
   "descFlagOnline": "Die USV läuft am Stromnetz",
   "descFlagOnBattery": "Das Netz ist weg — die Batterie trägt die Last",
   "descFlagLowBattery": "Die Batterie ist fast leer — die Abschaltung steht bevor",
@@ -623,5 +623,7 @@
   "descDriverVersionData": "Version der Datenzuordnung, die ein generischer Treiber für dieses Modell nutzt",
   "descUpsId": "Name, den ein Administrator in der USV hinterlegt hat — nicht die Seriennummer",
   "descUpsVendorid": "USB-Herstellerkennung, die das Gerät meldet, hexadezimal",
-  "descUpsProductid": "USB-Produktkennung, die das Gerät meldet, hexadezimal"
+  "descUpsProductid": "USB-Produktkennung, die das Gerät meldet, hexadezimal",
+  "commandsExecute": "Befehl mit Parameter ausführen",
+  "descCommandsExecute": "Einen Befehl der USV und bei Bedarf seinen Wert schreiben, z. B. load.off.delay 120 — dieselbe Form wie bei upscmd"
 }

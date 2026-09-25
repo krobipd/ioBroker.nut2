@@ -36,12 +36,16 @@ type NutClientConstructor = new (host: string, port: number, options?: NutClient
  *
  * @param NutClientClass NutClient constructor
  * @param logger Logger to forward into the NutClient
+ * @param timers The adapter's managed timers — the fleet rule (only this.setTimeout) holds for the
+ *   connection test too, and a stopped instance then clears its deadline instead of leaving it
+ *   to fire into a dead process
  */
 export function makeTestClientFactory(
   NutClientClass: NutClientConstructor,
   logger: NutLogger,
+  timers?: Pick<NutClientOptions, "setTimer" | "clearTimer">,
 ): MessageRouterDeps["createTestClient"] {
-  return (host, port, options) => new NutClientClass(host, port, { ...options, logger });
+  return (host, port, options) => new NutClientClass(host, port, { ...options, ...timers, logger });
 }
 
 /**

@@ -1,6 +1,8 @@
 import type * as utils from "@iobroker/adapter-core";
 import { tDesc, tName, tRaw, tText, type I18nKey } from "./i18n";
 import { ALL_FLAG_KEYS, descKeyOf, FLAG_META, getDisplayEntries, parseStatus } from "./status-parser";
+import { errText } from "./coerce";
+import { moveWithEnums } from "./enum-carry";
 import { detectStates, detectType, isNumericStateWord } from "./type-detector";
 import type { NutCommand, NutVariable } from "./types";
 
@@ -708,11 +710,14 @@ function localizeStates(states: Record<string, string> | undefined): Record<stri
  *
  * @param common The stored object's common, if any
  */
-function shrinkablesOf(common: unknown): { states?: string[]; bounds: string[] } {
+function shrinkablesOf(common: unknown): { states?: string[]; bounds: string[]; texts: string[] } {
   const c = (common ?? {}) as Record<string, unknown>;
   const states = c.states && typeof c.states === "object" ? Object.keys(c.states) : undefined;
   const bounds = ["min", "max"].filter(f => c[f] !== undefined && c[f] !== null);
-  return { states, bounds };
+  // unit and desc come from the adapter's own catalog alone; when the catalog stops giving one
+  // (a unit fixed, an explanation withdrawn), a merge would keep the old one forever.
+  const texts = ["unit", "desc"].filter(f => c[f] !== undefined && c[f] !== null && c[f] !== "");
+  return { states, bounds, texts };
 }
 
 /**
@@ -769,6 +774,12 @@ export class StateManager {
    */
   private readonly storedStates = new Map<string, string[]>();
   private readonly storedBounds = new Map<string, string[]>();
+  /** unit/desc each stored datapoint carries (same snapshot as storedStates). */
+  private readonly storedTexts = new Map<string, string[]>();
+  /** role + write each state was written with in this runtime — a change of writability re-writes them. */
+  private readonly createdShapes = new Map<string, string>();
+  /** NUT command names per UPS, as the last LIST CMD listed them. */
+  private readonly commandNames = new Map<string, Set<string>>();
   /** Recording configurations of renamed datapoints whose successor is created later in this run. */
   private readonly pendingRecording = new Map<string, Record<string, unknown>>();
   /**
@@ -1177,9 +1188,26 @@ export class StateManager {
    */
   async createCommandButtons(upsName: string, commands: NutCommand[]): Promise<void> {
     await this.ensureChannel(upsName, "commands");
+    this.commandNames.set(upsName, new Set(commands.map(c => c.name)));
+
+    // One text datapoint per UPS runs a command WITH its parameter, written the way upscmd takes
+    // it: "load.off.delay 120". The buttons below cannot carry a value.
+    await this.ensureState(`${upsName}.commands.execute`, {
+      type: "string",
+      role: "text",
+      read: true,
+      write: true,
+      name: tName("commandsExecute"),
+      desc: tDesc("descCommandsExecute"),
+    });
 
     for (const cmd of commands) {
       const stateId = `${upsName}.commands.${cmd.name.replace(/\./g, "-")}`;
+      if (stateId === `${upsName}.commands.execute`) {
+        // A driver-private command literally called "execute" would take the id of the text
+        // datapoint above — it stays reachable through that datapoint instead.
+        continue;
+      }
       this.nutNames.set(stateId, cmd.name);
       const entry = commandCatalogEntry(cmd.name);
       await this.ensureState(stateId, {
@@ -1207,6 +1235,15 @@ export class StateManager {
    */
   nutNameForState(stateId: string): string | undefined {
     return this.nutNames.get(stateId);
+  }
+
+  /**
+   * The command names the UPS listed on its last LIST CMD, or undefined before its buttons exist.
+   *
+   * @param upsName UPS identifier
+   */
+  commandsOf(upsName: string): Set<string> | undefined {
+    return this.commandNames.get(upsName);
   }
 
   /**
@@ -1291,13 +1328,17 @@ export class StateManager {
     // poll still finds an accurate answer here.
     this.storedStates.clear();
     this.storedBounds.clear();
+    this.storedTexts.clear();
     for (const [fullId, obj] of Object.entries(adapterObjects)) {
-      const { states, bounds } = shrinkablesOf(obj.common);
+      const { states, bounds, texts } = shrinkablesOf(obj.common);
       if (states) {
         this.storedStates.set(local(fullId), states);
       }
       if (bounds.length > 0) {
         this.storedBounds.set(local(fullId), bounds);
+      }
+      if (texts.length > 0) {
+        this.storedTexts.set(local(fullId), texts);
       }
     }
 
@@ -1358,9 +1399,9 @@ export class StateManager {
       // with it. Only a leaf carries one; a parent that merely holds children has none.
       const parts = id.split(".");
       const successor = `${parts[0]}.${parts[1]}.${parts.slice(2).join("-")}`;
-      await this.carryUserSettingsFrom(adapterObjects[`${this.adapter.namespace}.${id}`], id, successor);
+      await this.carryRecording(adapterObjects[`${this.adapter.namespace}.${id}`], successor);
       this.adapter.log.debug(`Removing v0.1.0 dot-style object: ${id}`);
-      await this.adapter.delObjectAsync(id);
+      await this.moveEnumsAndDelete(id, successor);
       this.createdIds.delete(id);
     }
   }
@@ -1395,14 +1436,20 @@ export class StateManager {
     ];
     for (const id of [...Object.keys(renamed), ...dropped]) {
       try {
+        const old = await this.adapter.getObjectAsync(id);
+        if (!old) {
+          continue; // already gone — the common case after the first start
+        }
         const successor = renamed[id];
         if (successor) {
-          await this.carryUserSettings(id, successor);
+          await this.carryRecording(old, successor);
+          await this.moveEnumsAndDelete(id, successor);
+        } else {
+          await this.adapter.delObjectAsync(id);
         }
-        await this.adapter.delObjectAsync(id);
         this.adapter.log.debug(`Removed deprecated state: ${id}`);
-      } catch {
-        // Object doesn't exist — nothing to clean up
+      } catch (err: unknown) {
+        this.adapter.log.debug(`Could not remove deprecated state ${id}: ${errText(err)}`);
       }
     }
   }
@@ -1450,7 +1497,7 @@ export class StateManager {
         }
       }
     }
-    for (const map of [this.storedStates, this.storedBounds]) {
+    for (const map of [this.storedStates, this.storedBounds, this.storedTexts, this.createdShapes]) {
       for (const id of [...map.keys()]) {
         if (under(id)) {
           map.delete(id);
@@ -1459,6 +1506,7 @@ export class StateManager {
     }
     this.fallbackNames.delete(prefix);
     this.descriptionLabels.delete(prefix);
+    this.commandNames.delete(prefix);
   }
 
   private async ensureObject(
@@ -1516,6 +1564,15 @@ export class StateManager {
     },
   ): Promise<ioBroker.CommonType> {
     if (this.createdIds.has(id)) {
+      // Once per runtime — except when the writability changed: LIST RW can list a variable later
+      // than its first poll (a LIST RW that failed, a driver that makes it writable), and the object
+      // would keep write:false and its read-only role until the next restart.
+      const shape = `${common.role}|${common.write}`;
+      const known = this.createdShapes.get(id);
+      if (known !== undefined && known !== shape && (this.createdTypes.get(id) ?? common.type) === common.type) {
+        await this.adapter.extendObject(id, { common: { role: common.role, write: common.write } });
+        this.createdShapes.set(id, shape);
+      }
       return this.createdTypes.get(id) ?? common.type;
     }
     // First contact with this object in this runtime: take away what a merge could never remove
@@ -1529,6 +1586,7 @@ export class StateManager {
     });
     this.createdIds.add(id);
     this.createdTypes.set(id, common.type);
+    this.createdShapes.set(id, `${common.role}|${common.write}`);
     await this.applyCarriedRecording(id);
     return common.type;
   }
@@ -1560,18 +1618,30 @@ export class StateManager {
    * @param common The picture about to be written
    * @param common.states The value list the new picture carries, if any
    * @param common.write Whether the variable is writable now
+   * @param common.unit The unit the new picture carries, if any
+   * @param common.desc The explanation the new picture carries, if any
    */
   private async clearShrinkableFields(
     id: string,
-    common: { states?: Record<string, string>; write: boolean },
+    common: { states?: Record<string, string>; write: boolean; unit?: string; desc?: LocalizedName },
   ): Promise<void> {
     const gone: string[] = [];
     const storedKeys = this.storedStates.get(id);
     if (common.states && storedKeys?.some(key => !(key in common.states!))) {
       gone.push("states");
     }
+    // A value list that is gone ENTIRELY: only for a read-only datapoint — a writable one gets its
+    // list from LIST ENUM right after this, and the enrichment reconciles it (design #44).
+    if (!common.states && storedKeys && !common.write) {
+      gone.push("states");
+    }
     if (!common.write) {
       gone.push(...(this.storedBounds.get(id) ?? []));
+    }
+    for (const f of this.storedTexts.get(id) ?? []) {
+      if ((f === "unit" && common.unit === undefined) || (f === "desc" && common.desc === undefined)) {
+        gone.push(f);
+      }
     }
     if (gone.length > 0) {
       await this.removeCommonFields(id, gone);
@@ -1631,35 +1701,15 @@ export class StateManager {
   }
 
   /**
-   * Move what the USER attached to a renamed predecessor onto the state that replaces it: the
-   * recording configuration and the room/function assignments. The adapter owns the datapoint,
-   * the user owns those — a rename by the adapter must cost neither the charts nor the rooms.
-   *
-   * @param fromId The id that is about to disappear
-   * @param toId The id that continues the datapoint (may not exist yet)
-   */
-  private async carryUserSettings(fromId: string, toId: string): Promise<void> {
-    const old = await this.adapter.getObjectAsync(fromId);
-    await this.carryUserSettingsFrom(old, fromId, toId);
-  }
-
-  /**
-   * Same as {@link carryUserSettings}, for a predecessor already read from the object store.
+   * Move the recording configuration (`common.custom`) of a renamed predecessor onto the state that
+   * replaces it. The adapter owns the datapoint, the user owns what hangs on it — a rename by the
+   * adapter must cost neither the charts nor (see moveEnumsAndDelete) the rooms.
    *
    * @param old The predecessor object (or null/undefined — then there is nothing to carry)
-   * @param fromId The id that is about to disappear
-   * @param toId The id that continues the datapoint (may not exist yet)
+   * @param toId The id that continues the datapoint (local; may not exist yet)
    */
-  private async carryUserSettingsFrom(
-    old: ioBroker.Object | null | undefined,
-    fromId: string,
-    toId: string,
-  ): Promise<void> {
-    if (!old) {
-      return;
-    }
-    await this.carryEnumMembership(fromId, toId);
-    const custom = (old.common as { custom?: Record<string, unknown> } | undefined)?.custom;
+  private async carryRecording(old: ioBroker.Object | null | undefined, toId: string): Promise<void> {
+    const custom = (old?.common as { custom?: Record<string, unknown> } | undefined)?.custom;
     if (!custom || Object.keys(custom).length === 0) {
       return;
     }
@@ -1675,28 +1725,25 @@ export class StateManager {
   }
 
   /**
-   * Rename a datapoint inside every room and function it was assigned to.
+   * Delete a renamed predecessor and carry its room and function assignments to the successor —
+   * through the fleet helper, in the only safe order: read the enums, delete, write the new id.
+   * Writing the new id BEFORE the delete (as this adapter did until 0.16.0) could be undone by the
+   * delete a moment later: js-controller writes every affected enum back from its asynchronously
+   * updated cache (`removeIdFromAllEnums`), which may not know the new id yet.
    *
-   * The delete of the old id strikes it from every enum (`_delForeignObject` →
-   * `removeIdFromAllEnums` in js-controller) — so the assignment has to move to the successor
-   * BEFORE the old object goes, in place, so the user's ordering in the room survives as well.
-   * `extendForeignObject` replaces a `members` list wholesale (js-controller empties it before the
-   * merge), so no dropped entry can linger.
-   *
-   * @param fromId The id that is about to disappear (local)
+   * @param fromId The id that goes away (local)
    * @param toId The id that continues the datapoint (local)
    */
-  private async carryEnumMembership(fromId: string, toId: string): Promise<void> {
-    const from = `${this.adapter.namespace}.${fromId}`;
-    const to = `${this.adapter.namespace}.${toId}`;
-    const enums = await this.adapter.getForeignObjectsAsync("enum.*", "enum");
-    for (const [enumId, enumObj] of Object.entries(enums)) {
-      const members = enumObj?.common?.members;
-      if (!Array.isArray(members) || !members.includes(from)) {
-        continue;
-      }
-      const moved = members.map(m => (m === from ? to : m)).filter((m, i, all) => all.indexOf(m) === i);
-      await this.adapter.extendForeignObjectAsync(enumId, { common: { members: moved } });
+  private async moveEnumsAndDelete(fromId: string, toId: string): Promise<void> {
+    const ns = this.adapter.namespace;
+    const carried = await moveWithEnums(
+      this.adapter,
+      `${ns}.${fromId}`,
+      `${ns}.${toId}`,
+      () => this.adapter.delObjectAsync(fromId),
+      errText,
+    );
+    for (const enumId of carried) {
       this.adapter.log.info(`Kept the assignment of the renamed datapoint ${toId} in ${enumId}`);
     }
   }

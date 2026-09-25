@@ -370,3 +370,11 @@ describe("coerce", () => {
     });
   });
 });
+
+describe("C8 parseNotifyTrigger — control characters never reach the log", () => {
+  it("turns a line break into a space instead of a second log line", () => {
+    const t = parseNotifyTrigger("LOWBATT ups0\nWARN forged line");
+    expect(t.text).toBe("LOWBATT ups0 WARN forged line");
+    expect(t.upsRef).not.toMatch(/[\r\n]/);
+  });
+});

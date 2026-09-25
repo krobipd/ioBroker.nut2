@@ -79,6 +79,18 @@ function createMockAdapter(): {
   const objects = new Map<string, MockObj>();
   const states = new Map<string, MockState>();
   const enums = new Map<string, MockObj>();
+  // js-controller's per-adapter enum cache (`this.enums`, 7.2.2 adapter.ts): filled at connect and
+  // kept up to date by the `enum.*` subscription — ASYNCHRONOUSLY. The adapter's own enum writes
+  // therefore do not reach it before the next delete: modelled by snapshotting an enum into the
+  // cache the moment the adapter first writes it (the cache still holds the version before).
+  const enumCache = new Map<string, MockObj>();
+  const clone = (o: MockObj): MockObj => JSON.parse(JSON.stringify(o)) as MockObj;
+  const snapshotEnum = (id: string): void => {
+    const current = enums.get(id);
+    if (!enumCache.has(id) && current) {
+      enumCache.set(id, clone(current));
+    }
+  };
   const deletedIds: string[] = [];
   const logs: string[] = [];
   const local = (fullId: string): string => (fullId.startsWith(`${NS}.`) ? fullId.slice(NS.length + 1) : fullId);
@@ -104,9 +116,16 @@ function createMockAdapter(): {
     // possible at all — extendObject merges and would keep the key (with the value null, which the
     // object checker rejects). Unlike delObject it touches neither the state value nor the enums.
     setForeignObject: (fullId: string, obj: MockObj) => {
+      if (fullId.startsWith("enum.")) {
+        snapshotEnum(fullId);
+        enums.set(fullId, clone(obj));
+        return Promise.resolve();
+      }
       objects.set(local(fullId), JSON.parse(JSON.stringify(obj)) as MockObj);
       return Promise.resolve();
     },
+    getForeignObjectAsync: (fullId: string) =>
+      Promise.resolve(fullId.startsWith("enum.") ? (enums.get(fullId) ?? null) : (objects.get(local(fullId)) ?? null)),
     // Every enum object, flat by id — what `getForeignObjects("enum.*", "enum")` answers.
     getForeignObjectsAsync: (pattern: string, type?: string) => {
       const result: Record<string, MockObj> = {};
@@ -121,6 +140,9 @@ function createMockAdapter(): {
     // extend, so the handed-in list replaces the stored one instead of merging into it
     // (`_extendForeignObjectAsync`). Everything else merges like extendObject below.
     extendForeignObjectAsync: (fullId: string, obj: Partial<MockObj>) => {
+      if (fullId.startsWith("enum.")) {
+        snapshotEnum(fullId);
+      }
       const store = fullId.startsWith("enum.") ? enums : objects;
       const key = store === enums ? fullId : local(fullId);
       const existing = store.get(key);
@@ -174,31 +196,36 @@ function createMockAdapter(): {
       }
       return Promise.resolve(result);
     },
-    delObjectAsync: (id: string, _opts?: { recursive?: boolean }) => {
+    delObjectAsync: (id: string, opts?: { recursive?: boolean }) => {
       deletedIds.push(id);
+      // Without `recursive` js-controller deletes exactly this id — children stay.
+      const hit = (key: string): boolean => key === id || (opts?.recursive === true && key.startsWith(`${id}.`));
       const gone: string[] = [];
-      for (const key of objects.keys()) {
-        if (key === id || key.startsWith(`${id}.`)) {
+      for (const key of [...objects.keys()]) {
+        if (hit(key)) {
           objects.delete(key);
           gone.push(key);
         }
       }
       // js-controller takes the VALUE of a leaf with the object.
       for (const key of [...states.keys()]) {
-        if (key === id || key.startsWith(`${id}.`)) {
+        if (hit(key)) {
           states.delete(key);
         }
       }
       // …and strikes the id from EVERY enum (`_delForeignObject` → `removeIdFromAllEnums`): the
-      // user's room and function assignments go with the object. This is the fourth consequence
-      // of a delete, and the one the mock did not model while the first three were compensated —
-      // which is how a delete-and-recreate on every start went unnoticed through three audits.
+      // user's room and function assignments go with the object. It works on the adapter's enum
+      // CACHE and writes each affected enum back WHOLE from it — an id the adapter wrote into the
+      // enum a moment earlier (not yet in the cache) is lost by that write.
       for (const key of gone) {
         const full = `${NS}.${key}`;
-        for (const e of enums.values()) {
-          const members = e.common.members as string[] | undefined;
+        for (const enumId of [...enums.keys()]) {
+          const cached = enumCache.get(enumId) ?? clone(enums.get(enumId)!);
+          const members = cached.common.members as string[] | undefined;
           if (members?.includes(full)) {
-            e.common.members = members.filter(m => m !== full);
+            cached.common.members = members.filter(m => m !== full);
+            enumCache.set(enumId, clone(cached));
+            enums.set(enumId, clone(cached));
           }
         }
       }
@@ -2092,10 +2119,11 @@ describe("StateManager", () => {
 
       await new StateManager(adapter).ensureUpsDevice("ups0", "Main UPS");
 
-      // In place, so the user's ordering in the room survives too.
+      // Through the fleet helper (enum-carry.ts): the old id leaves, the new one is appended —
+      // written AFTER the delete, so js-controller's write-back from its enum cache cannot undo it.
       expect(enums.get("enum.rooms.cellar")?.common.members).toEqual([
-        `${NS}.ups0.info.reachable`,
         `${NS}.ups0.battery.charge`,
+        `${NS}.ups0.info.reachable`,
       ]);
     });
 
@@ -2644,5 +2672,106 @@ describe("mutation-audit gaps (2026-09-06)", () => {
     expect(contact.name).toBeDefined();
     // …and the one-segment sibling keeps working.
     expect(objects.get("ups0.ambient.1-temperature")?.common.desc).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Audit 2026-09-25 — object tree (plan package D)
+// ---------------------------------------------------------------------------
+
+describe("D1 a rename keeps the room even though the controller writes enums back from its cache", () => {
+  it("info.online → info.reachable survives the cache write-back of the delete", async () => {
+    // The mock models js-controller 7.2.2: the delete writes each enum back WHOLE from the
+    // adapter's enum cache, which does not know an id the adapter wrote a moment earlier. The old
+    // carry wrote the new id BEFORE the delete and lost it here.
+    const { adapter, objects, enums } = createMockAdapter();
+    objects.set("ups0.info.online", { type: "state", common: { type: "boolean", name: "Online" }, native: {} });
+    assignToRoom(enums, "enum.rooms.cellar", "ups0.info.online");
+    await new StateManager(adapter).ensureUpsDevice("ups0", "Main UPS");
+    expect(enums.get("enum.rooms.cellar")?.common.members).toEqual([`${NS}.ups0.info.reachable`]);
+  });
+});
+
+describe("T5 a delete without recursive leaves the children", () => {
+  it("removes a stale UPS device WITH its children", async () => {
+    const { adapter, objects } = createMockAdapter();
+    objects.set("gone", { type: "device", common: { name: "Gone" }, native: {} });
+    objects.set("gone.info", { type: "channel", common: { name: "Info" }, native: {} });
+    objects.set("gone.info.reachable", { type: "state", common: { type: "boolean", name: "R" }, native: {} });
+    await new StateManager(adapter).pruneObjectTree(new Set(["ups0"]));
+    expect([...objects.keys()].filter(k => k.startsWith("gone"))).toEqual([]);
+  });
+});
+
+describe("D5 attributes the catalog stops giving are removed", () => {
+  it("removes a unit and a description that no longer apply", async () => {
+    const { adapter, objects } = createMockAdapter();
+    objects.set("ups0.battery.charge-approx", {
+      type: "state",
+      common: { type: "number", role: "value", unit: "%", name: "x", desc: { en: "old" } },
+      native: {},
+    });
+    const sm = await restartedManager(adapter, "ups0");
+    // battery.charge.approx is text now: no unit; and assume its description is gone too
+    await sm.updateVariables("ups0", [{ name: "battery.charge.approx", value: "<85" }], new Set());
+    const common = objects.get("ups0.battery.charge-approx")?.common ?? {};
+    expect(common.unit).toBeUndefined();
+    expect(common.type).toBe("string");
+  });
+
+  it("removes a value list a read-only datapoint no longer has", async () => {
+    const { adapter, objects } = createMockAdapter();
+    objects.set("ups0.ups.id", {
+      type: "state",
+      common: { type: "string", role: "text", name: "x", states: { a: "a" } },
+      native: {},
+    });
+    const sm = await restartedManager(adapter, "ups0");
+    await sm.updateVariables("ups0", [{ name: "ups.id", value: "My UPS" }], new Set());
+    expect(objects.get("ups0.ups.id")?.common.states).toBeUndefined();
+  });
+
+  it("keeps the value list of a writable datapoint for the enrichment", async () => {
+    const { adapter, objects } = createMockAdapter();
+    objects.set("ups0.ups.id", {
+      type: "state",
+      common: { type: "string", role: "text", name: "x", states: { a: "a" } },
+      native: {},
+    });
+    const sm = await restartedManager(adapter, "ups0");
+    await sm.updateVariables("ups0", [{ name: "ups.id", value: "My UPS" }], new Set(["ups.id"]));
+    expect(objects.get("ups0.ups.id")?.common.states).toEqual({ a: "a" });
+  });
+});
+
+describe("D9 commands.execute and the command list", () => {
+  it("creates the text datapoint next to the buttons and remembers the command names", async () => {
+    const { adapter, objects } = createMockAdapter();
+    const sm = new StateManager(adapter);
+    await sm.createCommandButtons("ups0", [{ name: "load.off.delay" }, { name: "beeper.mute" }]);
+    const exec = objects.get("ups0.commands.execute")?.common;
+    expect(exec?.type).toBe("string");
+    expect(exec?.role).toBe("text");
+    expect(exec?.write).toBe(true);
+    expect(sm.commandsOf("ups0")).toEqual(new Set(["load.off.delay", "beeper.mute"]));
+  });
+
+  it("does not let a driver command called 'execute' take the id of the text datapoint", async () => {
+    const { adapter, objects } = createMockAdapter();
+    const sm = new StateManager(adapter);
+    await sm.createCommandButtons("ups0", [{ name: "execute" }]);
+    expect(objects.get("ups0.commands.execute")?.common.type).toBe("string");
+  });
+});
+
+describe("N19 a variable that becomes writable later gets write:true in the same runtime", () => {
+  it("re-writes role and write when LIST RW starts listing the variable", async () => {
+    const { adapter, objects } = createMockAdapter();
+    const sm = new StateManager(adapter);
+    await sm.updateVariables("ups0", [{ name: "ups.delay.shutdown", value: "20" }], new Set());
+    expect(objects.get("ups0.ups.delay-shutdown")?.common.write).toBe(false);
+    await sm.updateVariables("ups0", [{ name: "ups.delay.shutdown", value: "20" }], new Set(["ups.delay.shutdown"]));
+    expect(objects.get("ups0.ups.delay-shutdown")?.common.write).toBe(true);
+    expect(objects.get("ups0.ups.delay-shutdown")?.common.role).toBe("level.timer");
   });
 });

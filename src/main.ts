@@ -12,13 +12,41 @@ import {
   parseNotifyTrigger,
 } from "./lib/coerce";
 import { dispatchMessage, makeTestClientFactory } from "./lib/message-router";
-import { authFailureText, NutClient, NutConnectionError, NutError, NutTimeoutError } from "./lib/nut-client";
+import {
+  authFailureText,
+  credentialHashWarning,
+  NutClient,
+  NutConnectionError,
+  NutError,
+  NutInputError,
+  NutTimeoutError,
+} from "./lib/nut-client";
 import { nutVarToStateId, sanitizeUpsName, StateManager } from "./lib/state-manager";
 import { detectStates, detectType } from "./lib/type-detector";
 import type { AdapterConfig, NutClientOptions, NutLogger, NutRange, NutVariable, UpsInfo } from "./lib/types";
 
 /** Upper bound for the notify warn-dedup set (external input must not grow it without limit). */
 const NOTIFY_WARN_CAP = 100;
+
+/**
+ * Consecutive polls a UPS may be missing from LIST UPS before its objects are removed. A UPS that
+ * vanishes for one poll (a typo in ups.conf and a reload, a driver restart) must not cost the user
+ * the room, function and recording settings on every one of its datapoints — deleting an object
+ * takes it out of every enum (js-controller 7.2.2 `removeIdFromAllEnums`).
+ */
+const MISSING_UPS_GRACE_POLLS = 3;
+
+/** Object ids the adapter owns at the root of its namespace — never a UPS id. */
+const RESERVED_ROOT_IDS = new Set(["info", "notify"]);
+
+/** How often a tracked command's result is asked for (GET TRACKING). */
+const TRACKING_POLL_MS = 500;
+
+/** Id segment of the per-UPS state that runs a command with its parameter. */
+const EXECUTE_STATE = "execute";
+
+/** NUT codes that mean "this UPS is not delivering data right now" — a state, not a fault. */
+const UPS_UNAVAILABLE_CODES = new Set(["DATA-STALE", "DRIVER-NOT-CONNECTED"]);
 
 /**
  * NUT adapter — lifecycle, polling, command/SET-VAR dispatch.
@@ -58,6 +86,26 @@ export class NutAdapter extends utils.Adapter {
   /** The persistent client failed fatally — nothing polls any more (see onConnectFatal). */
   private pollHalted = false;
   private everConnected = false;
+  /** Outcome of the last credential check, for the start line. */
+  private credentialCheck: "none" | "verified" | "rejected" | "unverified" = "none";
+  /** The credential check could not run (network) — said once, then debug. */
+  private warnedCredentialsUnverified = false;
+  /** Sending the credentials failed — said once, then debug. */
+  private warnedCredentialsNotSent = false;
+  /** `#` in a credential — said once per runtime. */
+  private warnedCredentialHash = false;
+  /** TRACKING is on for the live connection (set per connection in onConnected). */
+  private trackingOn = false;
+  /** UPSes whose command buttons exist for the current connection. */
+  private commandsReady = new Set<string>();
+  /** Polls in a row a known UPS was missing from LIST UPS (see MISSING_UPS_GRACE_POLLS). */
+  private missingPolls = new Map<string, number>();
+  /** The first discover of this runtime has run (removals there need no grace). */
+  private discoveredOnce = false;
+  /** discover() runs one at a time. */
+  private discoverChain: Promise<void> = Promise.resolve();
+  /** NUT names whose sanitized id collided — warned once each. */
+  private warnedIdCollisions = new Set<string>();
 
   /** @param options Adapter options forwarded to the ioBroker base class. */
   constructor(options: Partial<utils.AdapterOptions> = {}) {
@@ -223,6 +271,9 @@ export class NutAdapter extends utils.Adapter {
         void this.onConnected().catch((err: unknown) => this.log.error(`onConnected failed: ${errText(err)}`));
       });
       this.client.setOnFatal((err: unknown) => this.onConnectFatal(err));
+      // A dropped connection is known the moment it drops — not at the end of the next poll
+      // interval (up to 300 s later, while the NUT host may be shutting down on battery).
+      this.client.setOnDisconnect(() => this.onDisconnected());
       this.client.start();
     } catch (err: unknown) {
       this.log.error(`onReady failed: ${errText(err)}`);
@@ -247,9 +298,12 @@ export class NutAdapter extends utils.Adapter {
 
     try {
       this.enrichedUps.clear(); // fresh connection → re-enrich enum/range metadata
+      this.commandsReady.clear(); // and re-list the commands
+      this.trackingOn = false;
       await this.discover();
 
       await this.verifyCredentials(host, port);
+      await this.enableTracking();
       await this.setupCommandButtons();
       if (config.enableSetVar && !this.credentialsSent && !this.warnedSetVarWithoutCredentials) {
         // Same reason and same once-per-runtime as the commands warning in setupCommandButtons:
@@ -270,25 +324,109 @@ export class NutAdapter extends utils.Adapter {
 
       const transport = this.client?.isTls ? "TLS" : "unencrypted";
       if (this.everConnected) {
-        this.log.info(`Reconnected to NUT server ${host}:${port} (${transport}) — ${this.discoveredUps.size} UPS(es)`);
+        // A reconnect is the connection coming back — a state (info.connection), not an event.
+        this.log.debug(`Reconnected to NUT server ${host}:${port} (${transport}) — ${this.discoveredUps.size} UPS(es)`);
       } else {
         this.everConnected = true;
-        const authStatus = this.credentialsSent
-          ? this.authenticated
-            ? `logged in as ${config.username}`
-            : `credentials for ${config.username} rejected — reading only`
-          : "no credentials";
+        const authStatus = {
+          none: "no credentials",
+          verified: `logged in as ${config.username}`,
+          rejected: `credentials for ${config.username} rejected — reading only`,
+          unverified: `credentials for ${config.username} not verified`,
+        }[this.credentialCheck];
         this.log.info(
           `NUT adapter started — ${this.discoveredUps.size} UPS(es) on ${host}:${port}, polling every ${pollSec}s (${authStatus}, ${transport})`,
         );
       }
     } catch (err) {
-      this.log.error(`Post-connect setup failed: ${errText(err)}`);
+      // The connection dropping in the middle of the setup is the state the retry loop already
+      // handles — same bucket as a failed poll, not a red line (design #43).
+      const code = this.classifyError(err);
+      if (this.unloaded || code === "NETWORK" || code === "TIMEOUT") {
+        this.log.debug(`Post-connect setup interrupted: ${errText(err)}`);
+      } else if (code === "INVALID-INPUT") {
+        this.log.warn(`Post-connect setup failed: ${errText(err)}`);
+      } else {
+        this.log.error(`Post-connect setup failed: ${errText(err)}`);
+      }
       // Still arm the poll timer if setup failed on a live socket (e.g. a DB write during discovery
       // threw): otherwise the adapter stays connected but never polls, with no socket close to
       // trigger a reconnect.
       this.armPollTimer(config.pollInterval, pollSec);
     }
+  }
+
+  /**
+   * Switch TRACKING on for the live connection, so a command or a write is only reported as done
+   * once the DRIVER confirms it — upsd's plain `OK` only means it handed the request over
+   * (server/netinstcmd.c, netset.c). `SET` needs USERNAME/PASSWORD first (FLAG_USER), and without
+   * credentials there are no commands or writes anyway. Any refusal (a server older than 2.8,
+   * TRACKING not built in) leaves the adapter at the plain `OK`.
+   */
+  private async enableTracking(): Promise<void> {
+    if (!this.client || !this.credentialsSent) {
+      return;
+    }
+    try {
+      await this.client.setTracking(true);
+      this.trackingOn = true;
+    } catch (err: unknown) {
+      this.log.debug(
+        `TRACKING not available on this NUT server (${errText(err)}) — commands are confirmed by upsd only`,
+      );
+    }
+  }
+
+  /**
+   * Wait for the driver's verdict on a tracked command or write (`GET TRACKING <id>`).
+   *
+   * @param id Tracking id from `OK TRACKING <id>`, or undefined when tracking is off
+   * @returns "done" when the driver confirmed, "unconfirmed" when it did not answer in time or the
+   *   id is unknown, "untracked" without an id
+   * @throws {NutError} FAILED / INVALID-ARGUMENT when the driver refused
+   */
+  private async awaitDriver(id: string | undefined): Promise<"done" | "unconfirmed" | "untracked"> {
+    if (id === undefined || !this.client) {
+      return "untracked";
+    }
+    const deadline = Date.now() + coerceCommandTimeoutMs(this.nutConfig().commandTimeout);
+    for (;;) {
+      let status: string;
+      try {
+        status = await this.client.getTracking(id);
+      } catch (err: unknown) {
+        // ERR UNKNOWN is also what upsd answers for an id it no longer keeps — not a failure.
+        if (err instanceof NutError && err.code === "UNKNOWN") {
+          return "unconfirmed";
+        }
+        throw err;
+      }
+      if (status === "SUCCESS") {
+        return "done";
+      }
+      if (status !== "PENDING" || Date.now() >= deadline || this.unloaded) {
+        return "unconfirmed";
+      }
+      await new Promise<void>(resolve => {
+        if (!this.setTimeout(resolve, TRACKING_POLL_MS)) {
+          resolve(); // shutting down — this.setTimeout refuses; the loop ends on `unloaded`
+        }
+      });
+    }
+  }
+
+  /**
+   * The live connection dropped (reported by the client before it reconnects): nothing is read
+   * any more, so the connection and every UPS go unreachable now, not after the next interval.
+   */
+  private onDisconnected(): void {
+    if (this.unloaded) {
+      return;
+    }
+    this.trackingOn = false;
+    void this.setStateChangedAsync("info.connection", { val: false, ack: true })
+      .then(() => this.markAllUpsUnreachable())
+      .catch((err: unknown) => this.log.debug(`Could not record the lost connection: ${errText(err)}`));
   }
 
   /**
@@ -318,9 +456,15 @@ export class NutAdapter extends utils.Adapter {
   private async verifyCredentials(host: string, port: number): Promise<void> {
     this.authenticated = false;
     this.credentialsSent = false;
+    this.credentialCheck = "none";
     const config = this.nutConfig();
     if (!config.username || !config.password || !this.client) {
       return;
+    }
+    const hash = credentialHashWarning(config.username, config.password);
+    if (hash && !this.warnedCredentialHash) {
+      this.warnedCredentialHash = true;
+      this.log.warn(hash);
     }
 
     // The live connection needs the credentials for SET VAR / INSTCMD — those are checked per
@@ -330,9 +474,19 @@ export class NutAdapter extends utils.Adapter {
       await this.client.authenticate(config.username, config.password);
       this.credentialsSent = true;
     } catch (err) {
-      this.log.warn(`Could not send the credentials to NUT server ${host}:${port}: ${errText(err)}`);
+      // Every reconnect runs this: a credential the protocol cannot carry would repeat the same
+      // line forever. Once, then debug.
+      const msg = `Could not send the credentials to NUT server ${host}:${port}: ${errText(err)}`;
+      if (this.warnedCredentialsNotSent || this.isTransient(err)) {
+        this.log.debug(msg);
+      } else {
+        this.warnedCredentialsNotSent = true;
+        this.log.warn(msg);
+      }
+      this.credentialCheck = "unverified";
       return;
     }
+    this.credentialCheck = "unverified";
 
     const first = this.discoveredUps.values().next().value;
     if (!first) {
@@ -356,16 +510,33 @@ export class NutAdapter extends utils.Adapter {
       await probe.authenticate(config.username, config.password);
       await probe.login(first.name);
       this.authenticated = true;
+      this.credentialCheck = "verified";
       if (this.warnedCredentialsRejected) {
         // Recovered — say so once, at the same level the complaint went out.
         this.warnedCredentialsRejected = false;
         this.log.info(`NUT server ${host}:${port} accepted the credentials for ${config.username} again`);
       }
+      this.warnedCredentialsUnverified = false;
       this.log.debug(`Credentials for ${config.username} verified on ${host}:${port} (LOGIN ${first.name})`);
     } catch (err) {
+      const refused = authFailureText(err);
+      if (refused === null) {
+        // Not an answer about the credentials at all (the probe could not connect, timed out, or
+        // the UPS vanished between discover and LOGIN) — saying "rejected" would send the user
+        // after a password that is fine, and would silence the real rejection later.
+        const msg = `Could not verify the credentials for ${config.username} on ${host}:${port}: ${errText(err)}`;
+        if (this.warnedCredentialsUnverified || this.isTransient(err)) {
+          this.log.debug(msg);
+        } else {
+          this.warnedCredentialsUnverified = true;
+          this.log.warn(msg);
+        }
+        return;
+      }
+      this.credentialCheck = "rejected";
       // Every reconnect runs this check. Warning each time would fill the log on a flaky link
       // with a standing configuration problem; warn once, then keep it at debug until it clears.
-      const message = `NUT server ${host}:${port} rejected the credentials for ${config.username}: ${authFailureText(err) ?? errText(err)}`;
+      const message = `NUT server ${host}:${port} rejected the credentials for ${config.username}: ${refused}`;
       if (this.warnedCredentialsRejected) {
         this.log.debug(message);
       } else {
@@ -380,6 +551,17 @@ export class NutAdapter extends utils.Adapter {
       probe.destroy();
       this.testClients.delete(probe);
     }
+  }
+
+  /**
+   * Whether an error only says the server is not reachable right now (a state the retry loop
+   * handles), as opposed to an answer worth a line in the log.
+   *
+   * @param err Caught value
+   */
+  private isTransient(err: unknown): boolean {
+    const code = this.classifyError(err);
+    return code === "NETWORK" || code === "TIMEOUT";
   }
 
   /**
@@ -406,22 +588,40 @@ export class NutAdapter extends utils.Adapter {
       return;
     }
     for (const [upsId, ups] of [...this.discoveredUps]) {
-      try {
-        const commands = await this.client.listCmd(ups.name);
-        await this.stateManager.createCommandButtons(upsId, commands);
-        this.log.debug(`Created ${commands.length} command buttons for ${ups.name}`);
-      } catch (err) {
-        // The user ticked "enable commands" and gets no buttons — that has to be visible without
-        // switching the log to debug, exactly like the missing-credentials case above. Once per
-        // UPS per runtime, so a permanently unsupported driver does not repeat it on every
-        // reconnect.
-        const msg = `No command buttons for '${ups.name}' — the NUT server did not answer LIST CMD: ${errText(err)}`;
-        if (this.warnedCommandListFailures.has(upsId)) {
-          this.log.debug(msg);
-        } else {
-          this.warnedCommandListFailures.add(upsId);
-          this.log.warn(msg);
-        }
+      await this.setupCommandButtonsFor(upsId, ups);
+    }
+  }
+
+  /**
+   * Create the command buttons of one UPS. Also run from the poll for a UPS whose LIST CMD failed
+   * earlier: after a power cut upsd is often up before the USB driver, answers
+   * DRIVER-NOT-CONNECTED, and the buttons would otherwise wait for the next TCP reconnect — weeks.
+   *
+   * @param upsId Sanitized UPS object-ID segment
+   * @param ups The UPS as listed by the server
+   */
+  private async setupCommandButtonsFor(upsId: string, ups: UpsInfo): Promise<void> {
+    if (!this.client || !this.stateManager || this.commandsReady.has(upsId)) {
+      return;
+    }
+    try {
+      const commands = await this.client.listCmd(ups.name);
+      await this.stateManager.createCommandButtons(upsId, commands);
+      this.commandsReady.add(upsId);
+      this.warnedCommandListFailures.delete(upsId);
+      this.log.debug(`Created ${commands.length} command buttons for ${ups.name}`);
+    } catch (err) {
+      // The user ticked "enable commands" and gets no buttons — that has to be visible without
+      // switching the log to debug, exactly like the missing-credentials case above. Once per
+      // UPS per runtime; a driver that is just not there yet is a state and is retried on the
+      // next successful poll of this UPS.
+      const msg = `No command buttons for '${ups.name}' yet — the NUT server did not answer LIST CMD: ${errText(err)}`;
+      const unavailable = err instanceof NutError && UPS_UNAVAILABLE_CODES.has(err.code);
+      if (this.warnedCommandListFailures.has(upsId) || unavailable || this.isTransient(err)) {
+        this.log.debug(msg);
+      } else {
+        this.warnedCommandListFailures.add(upsId);
+        this.log.warn(msg);
       }
     }
   }
@@ -487,59 +687,95 @@ export class NutAdapter extends utils.Adapter {
   }
 
   /**
-   * Make a sanitized UPS name unique among the currently discovered UPSes. Two different NUT names
-   * can collapse to the same sanitized object ID (e.g. "u.p" and "u p" → "u_p"); disambiguate
-   * deterministically (…-2, …-3) and warn so the collision is visible in the admin.
+   * Object ids for a UPS list: the sanitized NUT name, made unique. Two NUT names can collapse to
+   * the same id ("u.p" and "u p" → "u_p"), and a UPS may be called like one of the adapter's own
+   * root objects (`info`, `notify`) — that UPS gets a suffix (…-2, …-3), because its device object
+   * would otherwise replace the instance's info channel or trigger, and its later removal would
+   * delete them recursively.
    *
-   * @param baseId Sanitized candidate object ID
-   * @param rawName Original NUT name, for the warning
+   * Suffixes are handed out in the order of the SORTED NUT names, not in the order the server
+   * lists them: reordering ups.conf must not swap two UPSes' datapoints and recordings.
+   *
+   * @param upsList The UPSes to place
+   * @param keep Entries that keep their current id (UPSes within the missing-grace period)
    */
-  private uniqueUpsId(baseId: string, rawName: string): string {
-    if (!this.discoveredUps.has(baseId)) {
-      return baseId;
+  private assignUpsIds(upsList: UpsInfo[], keep: Map<string, UpsInfo> = new Map()): Map<string, UpsInfo> {
+    const next = new Map<string, UpsInfo>(keep);
+    const taken = (id: string): boolean => next.has(id) || RESERVED_ROOT_IDS.has(id);
+    for (const ups of [...upsList].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
+      const baseId = sanitizeUpsName(ups.name);
+      let id = baseId;
+      for (let n = 2; taken(id); n++) {
+        id = `${baseId}-${n}`;
+      }
+      if (id !== baseId && !this.warnedIdCollisions.has(ups.name)) {
+        this.warnedIdCollisions.add(ups.name);
+        this.log.warn(
+          RESERVED_ROOT_IDS.has(baseId)
+            ? `UPS name '${ups.name}' is reserved for the adapter's own objects → using object ID '${id}'`
+            : `UPS name '${ups.name}' collides with another after sanitization → using object ID '${id}'`,
+        );
+      }
+      next.set(id, ups);
     }
-    let n = 2;
-    while (this.discoveredUps.has(`${baseId}-${n}`)) {
-      n++;
-    }
-    const unique = `${baseId}-${n}`;
-    this.log.warn(`UPS name '${rawName}' collides with another after sanitization → using object ID '${unique}'`);
-    return unique;
+    return next;
   }
 
   /**
-   * Whether the NUT server's UPS list differs from what was discovered last — by NUT name,
-   * order-independent.
-   *
-   * @param upsList Fresh LIST UPS result
-   */
-  private upsListChanged(upsList: UpsInfo[]): boolean {
-    const fresh = upsList.map(u => u.name).sort();
-    const known = [...this.discoveredUps.values()].map(u => u.name).sort();
-    return fresh.length !== known.length || fresh.some((name, i) => name !== known[i]);
-  }
-
-  /**
-   * Discover the UPS devices on the server and (re)build the object tree for them.
+   * Discover the UPS devices on the server and (re)build the object tree for them. Runs one at a
+   * time: the poll and a reconnect can both ask for it, and two interleaved runs could each see
+   * the other's half-built list and remove a UPS that is still there.
    *
    * @param prefetched LIST UPS result already fetched by the caller (the poll), otherwise fetched here
    */
-  private async discover(prefetched?: UpsInfo[]): Promise<void> {
+  private discover(prefetched?: UpsInfo[]): Promise<void> {
+    const run = this.discoverChain.then(() => this.runDiscover(prefetched));
+    this.discoverChain = run.catch(() => {});
+    return run;
+  }
+
+  /**
+   * One discover run (see discover).
+   *
+   * @param prefetched LIST UPS result already fetched by the caller
+   */
+  private async runDiscover(prefetched?: UpsInfo[]): Promise<void> {
     if (!this.client || !this.stateManager) {
       return;
     }
     const upsList = prefetched ?? (await this.client.listUps());
     this.log.debug(`Discovered ${upsList.length} UPS(es): ${upsList.map(u => u.name).join(", ")}`);
 
-    this.discoveredUps.clear();
-    for (const ups of upsList) {
-      // The NUT name can contain characters ioBroker forbids in object IDs (spaces, dots, etc.);
-      // sanitize it for the object tree and key discoveredUps on that ID. The real NUT name stays
-      // in the map value and is used for every protocol call (LIST VAR/INSTCMD/SET VAR).
-      const upsId = this.uniqueUpsId(sanitizeUpsName(ups.name), ups.name);
-      this.discoveredUps.set(upsId, ups);
-      await this.stateManager.ensureUpsDevice(upsId, ups.description);
+    // A UPS missing from the list keeps its objects for MISSING_UPS_GRACE_POLLS polls — except on
+    // the first discover of this runtime: a UPS that is not there when the adapter starts is gone.
+    const listed = new Set(upsList.map(u => u.name));
+    const keep = new Map<string, UpsInfo>();
+    if (this.discoveredOnce) {
+      for (const [upsId, ups] of this.discoveredUps) {
+        const missing = this.missingPolls.get(upsId) ?? 0;
+        if (!listed.has(ups.name) && missing > 0 && missing < MISSING_UPS_GRACE_POLLS) {
+          keep.set(upsId, ups);
+        }
+      }
     }
+    this.discoveredOnce = true;
+
+    // Built aside and swapped in one step: the map is read by the poll and by onStateChange.
+    const next = this.assignUpsIds(
+      upsList.filter(u => ![...keep.values()].some(k => k.name === u.name)),
+      keep,
+    );
+    for (const [upsId, ups] of next) {
+      if (!keep.has(upsId)) {
+        await this.stateManager.ensureUpsDevice(upsId, ups.description);
+      }
+    }
+    for (const [upsId, ups] of this.discoveredUps) {
+      if (!next.has(upsId)) {
+        this.log.info(`UPS '${ups.name}' is no longer listed by the NUT server — removing its objects`);
+      }
+    }
+    this.discoveredUps = next;
 
     const knownNames = new Set(this.discoveredUps.keys());
     await this.stateManager.pruneObjectTree(knownNames);
@@ -550,7 +786,14 @@ export class NutAdapter extends utils.Adapter {
     // enum/range enrichment, and a stale command-list marker would swallow the returning
     // UPS's first warning). One loop over all of them, so a marker added later cannot be
     // forgotten here.
-    for (const marker of [this.failedUps, this.enrichedUps, this.warnedCommandListFailures, this.writableVars]) {
+    for (const marker of [
+      this.failedUps,
+      this.enrichedUps,
+      this.warnedCommandListFailures,
+      this.writableVars,
+      this.commandsReady,
+      this.missingPolls,
+    ]) {
       for (const name of [...marker.keys()]) {
         if (!knownNames.has(name)) {
           marker.delete(name);
@@ -572,6 +815,10 @@ export class NutAdapter extends utils.Adapter {
    */
   private classifyError(err: unknown): string {
     if (err instanceof NutError) {
+      return err.code;
+    }
+    // Something the adapter was asked to send cannot go on the wire — nothing reached the server.
+    if (err instanceof NutInputError) {
       return err.code;
     }
     // The persistent client swallows socket failures in its own retry loop; what reaches the poll
@@ -613,7 +860,9 @@ export class NutAdapter extends utils.Adapter {
       this.log.debug("Skipping poll — previous poll still running");
       return;
     }
-    if (!this.client || !this.stateManager) {
+    // A fatal TLS error destroyed the client for good (design #54) — a notify write must not
+    // bring back "will keep retrying" under the line that said nothing would.
+    if (!this.client || !this.stateManager || this.pollHalted) {
       return;
     }
 
@@ -625,19 +874,43 @@ export class NutAdapter extends utils.Adapter {
       // at runtime used to wait for the next reconnect (or an adapter restart) — discovery
       // only ran once per connection.
       const upsList = await this.client.listUps();
-      if (this.upsListChanged(upsList)) {
-        this.log.info(`UPS list on the NUT server changed: ${upsList.map(u => u.name).join(", ") || "none"}`);
+      if (this.unloaded) {
+        return;
+      }
+      const listed = new Set(upsList.map(u => u.name));
+      const known = new Set([...this.discoveredUps.values()].map(u => u.name));
+      const added = upsList.filter(u => !known.has(u.name));
+      let removalDue = false;
+      for (const [upsId, ups] of this.discoveredUps) {
+        if (listed.has(ups.name)) {
+          this.missingPolls.delete(upsId);
+        } else {
+          const missing = (this.missingPolls.get(upsId) ?? 0) + 1;
+          this.missingPolls.set(upsId, missing);
+          removalDue ||= missing >= MISSING_UPS_GRACE_POLLS;
+        }
+      }
+      if (added.length > 0) {
+        // A new UPS is an event the user caused (ups.conf) — worth a line.
+        this.log.info(`New UPS on the NUT server: ${added.map(u => u.name).join(", ")}`);
+      }
+      if (added.length > 0 || removalDue) {
         await this.discover(upsList);
         await this.setupCommandButtons();
       }
 
       let reachable = 0;
-      // Over a copy: discover() clears and refills the map with awaits in between, and a live
-      // Map iteration would end silently at the clear — the remaining UPSes unpolled and the
-      // summary below counting a map that changed under it.
+      // Over a copy: discover() replaces the map, and the summary below must not count a map that
+      // changed under it.
       for (const [upsId, ups] of [...this.discoveredUps]) {
         // upsId is the sanitized object-ID segment; nutName is the real NUT name for the protocol.
         const nutName = ups.name;
+        if (this.missingPolls.has(upsId)) {
+          // Not listed right now (grace period): nothing to read, and asking would only earn an
+          // UNKNOWN-UPS — it is simply not reachable.
+          await this.setStateChangedAsync(`${upsId}.info.reachable`, { val: false, ack: true });
+          continue;
+        }
         try {
           // Only query LIST RW when SET VAR is enabled — otherwise the variables would be marked
           // writable (write: true) in the admin object tree while a write is silently blocked, and
@@ -647,12 +920,17 @@ export class NutAdapter extends utils.Adapter {
             this.nutConfig().enableSetVar
               ? this.client.listRw(nutName).catch((err: unknown) => {
                   this.log.debug(`LIST RW ${nutName} failed (non-critical): ${errText(err)}`);
-                  return [] as NutVariable[];
+                  return null;
                 })
               : Promise.resolve<NutVariable[]>([]),
           ]);
+          if (this.unloaded) {
+            return;
+          }
 
-          const rwNames = new Set(rwVars.map(v => v.name));
+          // A LIST RW that failed says nothing about writability: keep what the last poll knew
+          // instead of turning every variable read-only for the rest of the runtime.
+          const rwNames = rwVars ? new Set(rwVars.map(v => v.name)) : (this.writableVars.get(upsId) ?? new Set());
           this.writableVars.set(upsId, rwNames);
           await this.stateManager.updateVariables(upsId, variables, rwNames);
 
@@ -666,30 +944,49 @@ export class NutAdapter extends utils.Adapter {
             await this.stateManager.updateStatusFlags(upsId, statusVar.value, chargerStatus);
           }
 
-          await this.enrichWritableVars(upsId, nutName, rwVars);
+          if (rwVars) {
+            await this.enrichWritableVars(upsId, nutName, rwVars);
+          }
+          if (this.nutConfig().enableCommands && this.credentialsSent) {
+            await this.setupCommandButtonsFor(upsId, ups);
+          }
+          if (this.unloaded) {
+            return;
+          }
 
           await this.setStateChangedAsync(`${upsId}.info.reachable`, { val: true, ack: true });
           reachable++;
 
           if (this.failedUps.has(upsId)) {
-            this.log.info(`UPS '${nutName}' recovered`);
+            // Coming back is a state (info.reachable), not an event.
+            this.log.debug(`UPS '${nutName}' recovered`);
             this.failedUps.delete(upsId);
           }
         } catch (err) {
-          await this.setStateChangedAsync(`${upsId}.info.reachable`, { val: false, ack: true });
+          // The connection itself went away: every other UPS would fail the same way, one warn
+          // line each. Leave the loop and let the whole-poll path below report it once.
+          if (err instanceof NutConnectionError || err instanceof NutTimeoutError || this.unloaded) {
+            throw err;
+          }
+          try {
+            await this.setStateChangedAsync(`${upsId}.info.reachable`, { val: false, ack: true });
+          } catch (writeErr: unknown) {
+            this.log.debug(`Could not record '${nutName}' as unreachable: ${errText(writeErr)}`);
+          }
 
-          const msg = `Failed to poll UPS '${nutName}': ${errText(err)}`;
-          if (this.failedUps.has(upsId)) {
+          // DATA-STALE / DRIVER-NOT-CONNECTED: the UPS is not delivering right now — a state
+          // (info.reachable says it), recognised on every repetition, never a warning. Anything
+          // else from the server is worth one line per UPS until it recovers.
+          const unavailable = err instanceof NutError && UPS_UNAVAILABLE_CODES.has(err.code);
+          const msg = unavailable
+            ? `UPS '${nutName}': ${err.code === "DATA-STALE" ? "driver reports stale data" : "driver not connected"} — keeping existing states`
+            : `Failed to poll UPS '${nutName}': ${errText(err)}`;
+          if (unavailable || this.failedUps.has(upsId)) {
             this.log.debug(msg);
           } else {
-            const isDataStale = err instanceof NutError && err.code === "DATA-STALE";
-            if (isDataStale) {
-              this.log.warn(`UPS '${nutName}': driver reports stale data — keeping existing states`);
-            } else {
-              this.log.warn(msg);
-            }
-            this.failedUps.add(upsId);
+            this.log.warn(msg);
           }
+          this.failedUps.add(upsId);
         }
       }
 
@@ -703,7 +1000,7 @@ export class NutAdapter extends utils.Adapter {
       await this.stateManager.writeUpsSummary(this.discoveredUps.size, reachable);
 
       if (this.lastErrorCode) {
-        this.log.info("Connection restored");
+        this.log.debug("Connection restored");
         this.lastErrorCode = "";
       }
     } catch (err) {
@@ -714,16 +1011,21 @@ export class NutAdapter extends utils.Adapter {
 
       if (this.unloaded) {
         // Shutting down: the client was torn down under this poll, so whatever it raised is our
-        // own doing. Never let stopping the instance write a warning about itself.
+        // own doing. Never let stopping the instance write a warning about itself — nor a state
+        // after onUnload's final ones.
         this.log.debug(`Poll aborted by shutdown: ${errMsg}`);
-      } else if (isRepeat) {
+        return;
+      }
+      if (isRepeat) {
         this.log.debug(`Poll failed (ongoing): ${errMsg}`);
       } else if (errorCode === "NETWORK" || errorCode === "TIMEOUT") {
-        // Not a fault of this adapter and it fixes itself — the client is already retrying with
-        // backoff. A server that is simply restarting must not paint the log red.
+        // An unreachable server is a state, not a log event (fleet rule 2026-09-22): the client is
+        // already retrying, info.connection and every info.reachable carry it.
         const host = coerceHost(this.nutConfig().host) ?? "";
         const port = coercePort(this.nutConfig().port);
-        this.log.warn(`Cannot reach NUT server ${host}:${port} (${errMsg}) — will keep retrying`);
+        this.log.debug(`Cannot reach NUT server ${host}:${port} (${errMsg}) — will keep retrying`);
+      } else if (errorCode === "INVALID-INPUT") {
+        this.log.warn(`Poll failed: ${errMsg}`);
       } else {
         this.log.error(`Poll failed: ${errMsg}`);
       }
@@ -772,6 +1074,14 @@ export class NutAdapter extends utils.Adapter {
     if (!this.client || !this.stateManager || this.enrichedUps.has(upsId) || rwVars.length === 0) {
       return;
     }
+    // A driver that cannot answer ENUM/RANGE is final for this connection; a connection that
+    // dropped or timed out in the middle is not — then this UPS is enriched again on the next poll.
+    let interrupted = false;
+    const noteFailure = (err: unknown): void => {
+      if (err instanceof NutConnectionError || err instanceof NutTimeoutError) {
+        interrupted = true;
+      }
+    };
     for (const rw of rwVars) {
       const stateId = nutVarToStateId(upsId, rw.name);
       // A writable yes/no var is a boolean state (detectType → boolean only via parseYesNo). Its
@@ -784,6 +1094,7 @@ export class NutAdapter extends utils.Adapter {
         try {
           enumVals = await this.client.listEnum(nutName, rw.name);
         } catch (err: unknown) {
+          noteFailure(err);
           this.log.debug(`LIST ENUM ${nutName} ${rw.name}: not supported (${errText(err)})`);
         }
         if (enumVals !== undefined) {
@@ -807,27 +1118,30 @@ export class NutAdapter extends utils.Adapter {
       try {
         ranges = await this.client.listRange(nutName, rw.name);
       } catch (err: unknown) {
+        noteFailure(err);
         this.log.debug(`LIST RANGE ${nutName} ${rw.name}: not supported (${errText(err)})`);
       }
       if (ranges !== undefined) {
         // No range means the bounds must disappear, not stay: they came from LIST RANGE alone,
         // and a driver update that drops a range would otherwise leave js-controller warning
-        // about every value outside bounds nobody reports any more.
+        // about every value outside bounds nobody reports any more. A variable can carry several
+        // disjoint ranges (net-protocol.txt: "90"-"100" and "102"-"105"); the datapoint gets the
+        // span over all of them — with the first range alone, 103 would be "above max".
         const patch: { min: number | null; max: number | null } = { min: null, max: null };
-        if (ranges.length > 0) {
-          const min = parseDecimal(ranges[0].min);
-          const max = parseDecimal(ranges[0].max);
-          if (!Number.isNaN(min)) {
-            patch.min = min;
-          }
-          if (!Number.isNaN(max)) {
-            patch.max = max;
-          }
+        const mins = ranges.map(r => parseDecimal(r.min)).filter(n => Number.isFinite(n));
+        const maxs = ranges.map(r => parseDecimal(r.max)).filter(n => Number.isFinite(n));
+        if (mins.length > 0) {
+          patch.min = Math.min(...mins);
+        }
+        if (maxs.length > 0) {
+          patch.max = Math.max(...maxs);
         }
         await this.applyMetadata(stateId, patch);
       }
     }
-    this.enrichedUps.add(upsId);
+    if (!interrupted) {
+      this.enrichedUps.add(upsId);
+    }
   }
 
   /**
@@ -864,8 +1178,14 @@ export class NutAdapter extends utils.Adapter {
         return;
       }
 
-      if (!this.client) {
-        this.log.debug(`onStateChange: ignoring ${localId} — no client connection`);
+      if (!this.client || this.unloaded || this.pollHalted || !this.client.isConnected) {
+        // Nothing can reach the server right now (not connected yet, reconnecting, stopped by a
+        // fatal TLS error, shutting down). A write then is not an error of the write — the next
+        // poll shows the real value again; a command button is reset below.
+        this.log.debug(`onStateChange: ignoring ${localId} — not connected to the NUT server`);
+        if (this.client && !this.unloaded && /\.commands\./.test(localId) && state.val !== false) {
+          await this.setState(id, { val: false, ack: true });
+        }
         return;
       }
 
@@ -905,14 +1225,12 @@ export class NutAdapter extends utils.Adapter {
           this.log.warn(`Command blocked — enableCommands is disabled: ${localId}`);
           return;
         }
-        const cmdName = this.stateManager?.nutNameForState(localId) ?? parts.slice(2).join(".").replace(/-/g, ".");
-        this.log.debug(`INSTCMD ${nutName} ${cmdName}`);
-        try {
-          await this.client.instCmd(nutName, cmdName);
-          this.log.info(`Command executed: ${cmdName} on ${nutName}`);
-        } catch (err) {
-          this.log.error(`Command failed: ${cmdName} on ${nutName} — ${errText(err)}`);
+        if (parts.length === 3 && parts[2] === EXECUTE_STATE) {
+          await this.runExecuteState(id, upsId, nutName, state.val);
+          return;
         }
+        const cmdName = this.stateManager?.nutNameForState(localId) ?? parts.slice(2).join(".").replace(/-/g, ".");
+        await this.runCommand(nutName, cmdName);
         await this.setState(id, { val: false, ack: true });
         return;
       }
@@ -946,6 +1264,12 @@ export class NutAdapter extends utils.Adapter {
         this.log.debug(`onStateChange: ${localId} is read-only (${varName} is not in LIST RW), ignoring write`);
         return;
       }
+      // driver.flag.* is read-only by design (#16), whatever LIST RW says: the one writable flag
+      // (allow_killpower) takes 1/0 on the wire, and the boolean path would send yes/no.
+      if (varName.startsWith("driver.flag.")) {
+        this.log.debug(`onStateChange: ${localId} is a driver flag — read-only, ignoring write`);
+        return;
+      }
       // A writable yes/no variable (ups.start.auto/.battery/.reboot, battery.protection) is stored
       // as a boolean state (detectType → boolean only via parseYesNo, so boolean ⟺ the NUT var
       // accepts yes/no). Translate it back to the token NUT expects — String(true) = "true" would
@@ -953,14 +1277,98 @@ export class NutAdapter extends utils.Adapter {
       const value = typeof state.val === "boolean" ? (state.val ? "yes" : "no") : String(state.val);
       this.log.debug(`SET VAR ${nutName} ${varName} "${value}"`);
       try {
-        await this.client.setVar(nutName, varName, value);
-        await this.setState(id, { val: state.val, ack: true });
-        this.log.info(`Variable set: ${varName} = "${value}" on ${nutName}`);
+        const tracking = await this.client.setVar(nutName, varName, value);
+        const verdict = await this.awaitDriver(tracking);
+        // Confirm with the value in the datapoint's own type — a script writing "230" as a string
+        // to a number datapoint would otherwise be acknowledged as a string (js-controller logs
+        // that on every write).
+        const parsed = detectType(varName, value, true).parsedValue;
+        await this.setState(id, { val: parsed ?? state.val, ack: true });
+        this.log.info(
+          verdict === "unconfirmed"
+            ? `Variable sent: ${varName} = "${value}" on ${nutName} — the driver has not confirmed it (yet)`
+            : `Variable set: ${varName} = "${value}" on ${nutName}`,
+        );
       } catch (err) {
         this.log.error(`SET VAR failed: ${varName} on ${nutName} — ${errText(err)}`);
+        await this.restoreFromServer(id, nutName, varName);
       }
     } catch (err: unknown) {
       this.log.error(`onStateChange failed: ${errText(err)}`);
+    }
+  }
+
+  /**
+   * Run one instant command and report what the driver made of it.
+   *
+   * @param nutName Real NUT name of the UPS
+   * @param cmdName Command name
+   * @param param Optional command parameter (commands.execute)
+   */
+  private async runCommand(nutName: string, cmdName: string, param?: string): Promise<void> {
+    if (!this.client) {
+      return;
+    }
+    const label = param === undefined ? cmdName : `${cmdName} ${param}`;
+    this.log.debug(`INSTCMD ${nutName} ${label}`);
+    try {
+      const tracking =
+        param === undefined
+          ? await this.client.instCmd(nutName, cmdName)
+          : await this.client.instCmd(nutName, cmdName, param);
+      const verdict = await this.awaitDriver(tracking);
+      this.log.info(
+        verdict === "unconfirmed"
+          ? `Command sent: ${label} on ${nutName} — the driver has not confirmed it (yet)`
+          : `Command executed: ${label} on ${nutName}`,
+      );
+    } catch (err) {
+      this.log.error(`Command failed: ${label} on ${nutName} — ${errText(err)}`);
+    }
+  }
+
+  /**
+   * `<ups>.commands.execute`: a command with its optional parameter, written the way upscmd takes
+   * it (`load.off.delay 120`). Only commands the UPS lists are sent; the state is acknowledged with
+   * what was actually sent, or emptied when nothing was.
+   *
+   * @param id Full state id
+   * @param upsId Sanitized UPS id
+   * @param nutName Real NUT name of the UPS
+   * @param raw The written value
+   */
+  private async runExecuteState(id: string, upsId: string, nutName: string, raw: ioBroker.StateValue): Promise<void> {
+    const text = typeof raw === "string" ? raw.trim() : "";
+    const [cmdName, param, ...rest] = text.split(/\s+/);
+    const known = this.stateManager?.commandsOf(upsId);
+    if (!cmdName || rest.length > 0 || (known && !known.has(cmdName))) {
+      this.log.warn(
+        `commands.execute on ${nutName}: ${JSON.stringify(text)} is not "<command> [<parameter>]" with a command the UPS offers`,
+      );
+      await this.setState(id, { val: "", ack: true });
+      return;
+    }
+    await this.runCommand(nutName, cmdName, param);
+    await this.setState(id, { val: text, ack: true });
+  }
+
+  /**
+   * After a refused SET VAR, show the value the server really holds instead of leaving the
+   * unconfirmed write standing until the next poll.
+   *
+   * @param id Full state id
+   * @param nutName Real NUT name of the UPS
+   * @param varName NUT variable name
+   */
+  private async restoreFromServer(id: string, nutName: string, varName: string): Promise<void> {
+    try {
+      const current = await this.client?.getVar(nutName, varName);
+      if (current !== undefined) {
+        const parsed = detectType(varName, current, true).parsedValue;
+        await this.setState(id, { val: parsed, ack: true });
+      }
+    } catch (err: unknown) {
+      this.log.debug(`GET VAR ${nutName} ${varName} after the failed write: ${errText(err)}`);
     }
   }
 
@@ -995,7 +1403,7 @@ export class NutAdapter extends utils.Adapter {
         matchedId = sanitizeUpsName(upsRef);
       }
       if (!matchedId) {
-        const msg = `notify: unknown UPS '${upsRef}' — refreshing all UPSes, event recorded on the trigger state only`;
+        const msg = `notify: unknown UPS ${JSON.stringify(upsRef)} — refreshing all UPSes, event recorded on the trigger state only`;
         if (this.warnedNotifyRefs.has(upsRef)) {
           this.log.debug(msg);
         } else {
@@ -1012,7 +1420,7 @@ export class NutAdapter extends utils.Adapter {
     }
 
     if (type) {
-      this.log.info(`upsmon event '${type}'${matchedId ? ` for UPS '${matchedId}'` : ""} — refreshing`);
+      this.log.info(`upsmon event ${JSON.stringify(type)}${matchedId ? ` for UPS '${matchedId}'` : ""} — refreshing`);
       if (matchedId) {
         await this.setState(`${matchedId}.info.notify`, { val: type, ack: true });
       }
@@ -1032,7 +1440,14 @@ export class NutAdapter extends utils.Adapter {
       await dispatchMessage(obj, {
         log: this.nutLogger,
         sendTo: this.sendTo.bind(this),
-        createTestClient: makeTestClientFactory(NutClient, this.nutLogger),
+        createTestClient: makeTestClientFactory(NutClient, this.nutLogger, {
+          setTimer: (cb, ms) => this.setTimeout(cb, ms),
+          clearTimer: h => {
+            if (h != null) {
+              this.clearTimeout(h as ioBroker.Timeout);
+            }
+          },
+        }),
         onTestClientCreated: client => {
           this.testClients.add(client);
         },

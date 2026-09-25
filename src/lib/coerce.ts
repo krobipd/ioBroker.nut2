@@ -212,7 +212,12 @@ export function parseNotifyTrigger(raw: unknown): NotifyTrigger {
     // null/undefined/objects — no usable trigger value.
     text = "";
   }
-  text = text.trim().slice(0, NOTIFY_MAX_LENGTH);
+  // Control characters become spaces before anything else: the text is written to the log and to
+  // a state, and a line break in it would let whoever may write the trigger forge log lines.
+  text = Array.from(text, ch => (ch.charCodeAt(0) < 0x20 || ch.charCodeAt(0) === 0x7f ? " " : ch))
+    .join("")
+    .trim()
+    .slice(0, NOTIFY_MAX_LENGTH);
 
   const firstWs = text.search(/\s/);
   if (firstWs < 0) {

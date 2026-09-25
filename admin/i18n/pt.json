@@ -362,7 +362,7 @@
   "descUpsLastNotify": "Último evento upsmon atribuído a este UPS",
   "descStatusRaw": "O estado exatamente como o UPS o comunica",
   "descStatusDisplay": "O mesmo estado por extenso, para mostrar ou enviar",
-  "descStatusSeverity": "Quão grave é a situação de energia: 0 bem, 4 desligamento iminente",
+  "descStatusSeverity": "Gravidade da situação de energia: 0 tudo bem, 4 desligamento iminente; vazio enquanto o UPS não indicar de onde vem a energia",
   "descFlagOnline": "O UPS funciona com energia da rede",
   "descFlagOnBattery": "Falta energia da rede — a bateria alimenta a carga",
   "descFlagLowBattery": "A bateria está quase vazia — o desligamento aproxima-se",
@@ -623,5 +623,7 @@
   "descDriverVersionData": "Versão do mapeamento de dados que um controlador genérico usa para este modelo",
   "descUpsId": "Nome que um administrador guardou no próprio UPS — não o número de série",
   "descUpsVendorid": "Identificador USB do fabricante comunicado pelo aparelho, em hexadecimal",
-  "descUpsProductid": "Identificador USB do produto comunicado pelo aparelho, em hexadecimal"
+  "descUpsProductid": "Identificador USB do produto comunicado pelo aparelho, em hexadecimal",
+  "commandsExecute": "Executar comando com parâmetro",
+  "descCommandsExecute": "Escreva um comando oferecido pelo UPS e, se necessário, o seu valor, p. ex. load.off.delay 120 — a mesma forma que o upscmd aceita"
 }

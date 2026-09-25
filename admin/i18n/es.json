@@ -362,7 +362,7 @@
   "descUpsLastNotify": "Último evento upsmon asignado a este SAI",
   "descStatusRaw": "El estado tal cual lo informa el SAI",
   "descStatusDisplay": "El mismo estado en palabras, para mostrar o enviar",
-  "descStatusSeverity": "Gravedad de la situación eléctrica: 0 bien, 4 apagado inminente",
+  "descStatusSeverity": "Gravedad de la situación eléctrica: 0 bien, 4 apagado inminente; vacío mientras el SAI no indique de dónde viene su energía",
   "descFlagOnline": "El SAI funciona con la red eléctrica",
   "descFlagOnBattery": "No hay red — la batería sostiene la carga",
   "descFlagLowBattery": "La batería está casi vacía — el apagado se acerca",
@@ -623,5 +623,7 @@
   "descDriverVersionData": "Versión de la tabla de datos que un controlador genérico usa para este modelo",
   "descUpsId": "Nombre que un administrador guardó en el propio SAI — no el número de serie",
   "descUpsVendorid": "Identificador USB del fabricante que informa el aparato, en hexadecimal",
-  "descUpsProductid": "Identificador USB del producto que informa el aparato, en hexadecimal"
+  "descUpsProductid": "Identificador USB del producto que informa el aparato, en hexadecimal",
+  "commandsExecute": "Ejecutar comando con parámetro",
+  "descCommandsExecute": "Escribe un comando que ofrezca el SAI y, si hace falta, su valor, p. ej. load.off.delay 120 — la misma forma que acepta upscmd"
 }

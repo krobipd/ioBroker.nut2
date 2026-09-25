@@ -6,8 +6,11 @@ export interface StatusResult {
   raw: string;
   /** Individual boolean flags */
   flags: Record<string, boolean>;
-  /** Computed severity: 0=OK, 1=Info, 2=Warning, 3=Critical, 4=Emergency */
-  severity: number;
+  /**
+   * Computed severity: 0=OK, 1=Info, 2=Warning, 3=Critical, 4=Emergency — or null when the status
+   * does not say where the power comes from (no OL, OB, BYPASS or FSD): then nothing is "OK".
+   */
+  severity: number | null;
 }
 
 /** One status-flag definition. Single source of truth for token, flag id, label, i18n key and role. */
@@ -134,8 +137,10 @@ export function parseStatus(rawStatus: string, chargerStatus?: string): StatusRe
   }
 
   // Modern NUT exposes charging state via battery.charger.status instead of CHRG/DISCHRG
-  // flags (e.g. Eaton Ellipse ECO). Derive charging/discharging from it when present.
-  if (chargerStatus) {
+  // flags (e.g. Eaton Ellipse ECO). Derive charging/discharging from it — but only when the status
+  // itself says nothing about charging: the flags are the driver's own statement, and filling in
+  // the other one next to them showed a battery that charges and discharges at once.
+  if (chargerStatus && !activeTokens.has("CHRG") && !activeTokens.has("DISCHRG")) {
     const cs = chargerStatus.trim().toLowerCase();
     if (cs === "charging") {
       flags.charging = true;
@@ -186,7 +191,13 @@ export function getDisplayEntries(rawStatus: string): DisplayEntry[] {
 // forced shutdown). Fault flags such as OVER/ALARM/OFF are intentionally NOT folded in —
 // they are exposed as their own booleans; conflating them here would dilute a single-meaning
 // value. Design decision (krobi 2026-05-31), not an oversight.
-function computeSeverity(tokens: Set<string>): number {
+function computeSeverity(tokens: Set<string>): number | null {
+  // Severity describes the power source (design #5). Without any statement about it — a UPS that
+  // reports only OFF (apc-mib: sleeping or switched off, no OL/OB, apc-mib.c:82-88), WAIT (no data
+  // yet, new-drivers.txt), an empty status, a PDU without one — it is unknown, not "OK".
+  if (!["OL", "OB", "BYPASS", "FSD"].some(t => tokens.has(t))) {
+    return null;
+  }
   if (tokens.has("FSD")) {
     return 4;
   }

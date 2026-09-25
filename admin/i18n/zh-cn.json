@@ -362,7 +362,7 @@
   "descUpsLastNotify": "分配给此 UPS 的最近一次 upsmon 事件",
   "descStatusRaw": "UPS 原样上报的状态",
   "descStatusDisplay": "同一状态的文字表述，便于显示或推送",
-  "descStatusSeverity": "供电状况的严重程度：0 正常，4 即将关机",
+  "descStatusSeverity": "供电情况的严重程度：0 正常，4 即将关机；UPS 未报告电源来源时为空",
   "descFlagOnline": "UPS 正在使用市电供电",
   "descFlagOnBattery": "市电中断——由电池带载",
   "descFlagLowBattery": "电池即将耗尽——关机在即",
@@ -623,5 +623,7 @@
   "descDriverVersionData": "通用驱动为该型号所用数据映射表的版本",
   "descUpsId": "管理员写入 UPS 内部的名称——并非序列号",
   "descUpsVendorid": "设备上报的 USB 厂商标识，十六进制",
-  "descUpsProductid": "设备上报的 USB 产品标识，十六进制"
+  "descUpsProductid": "设备上报的 USB 产品标识，十六进制",
+  "commandsExecute": "执行带参数的命令",
+  "descCommandsExecute": "写入 UPS 提供的命令，必要时附上其值，例如 load.off.delay 120 — 与 upscmd 的格式相同"
 }

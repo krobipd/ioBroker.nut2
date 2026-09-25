@@ -362,7 +362,7 @@
   "descUpsLastNotify": "Last upsmon event routed to this UPS",
   "descStatusRaw": "The status exactly as the UPS reports it",
   "descStatusDisplay": "The same status in words, for a display or a message",
-  "descStatusSeverity": "How serious the power situation is: 0 fine, 4 shutdown imminent",
+  "descStatusSeverity": "How serious the power situation is: 0 fine, 4 shutdown imminent; empty while the UPS does not say where its power comes from",
   "descFlagOnline": "The UPS runs on mains power",
   "descFlagOnBattery": "Mains power is gone — the battery is carrying the load",
   "descFlagLowBattery": "The battery is nearly empty — shutdown is close",
@@ -623,5 +623,7 @@
   "descDriverVersionData": "Version of the data mapping a generic driver uses for this model",
   "descUpsId": "Name an administrator stored in the UPS itself — not the serial number",
   "descUpsVendorid": "USB vendor ID the device reports, in hexadecimal",
-  "descUpsProductid": "USB product ID the device reports, in hexadecimal"
+  "descUpsProductid": "USB product ID the device reports, in hexadecimal",
+  "commandsExecute": "Run command with parameter",
+  "descCommandsExecute": "Write a command the UPS offers and, if needed, its value, e.g. load.off.delay 120 — the same form upscmd takes"
 }
