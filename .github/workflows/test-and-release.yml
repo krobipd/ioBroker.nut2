@@ -7,11 +7,12 @@ on:
     tags:
       - v[0-9]+.[0-9]+.[0-9]+
       - v[0-9]+.[0-9]+.[0-9]+-**
-    # Reine Doku-Pushes lösen keinen Lauf aus: an einer Textzeile kann kein
-    # Test fallen. Laut GitHub-Doku gilt "Path filters are not evaluated for
-    # pushes of tags" — der Release-Lauf am Tag bleibt also unberührt. Bewusst
-    # NUR unter `push`, nicht unter `pull_request`: dort liefert der Lauf den
-    # Pflicht-Prüfauftrag der Branch-Sperre (Dependabot-Zusammenführung).
+    # A documentation-only push starts no run. The repository standard checks DO read these files
+    # (README changelog, docs/, .gitignore) — the local pre-push guard runs them for such a push.
+    # GitHub's docs state "Path filters are not evaluated for pushes of tags", so the
+    # release run on a tag is unaffected. Deliberately only under `push`, never under
+    # `pull_request` — there this run is the required check of the branch protection
+    # (which is what lets Dependabot merges through).
     paths-ignore:
       - "**.md"
       - "docs/**"
@@ -19,6 +20,10 @@ on:
       - ".gitattributes"
       - ".editorconfig"
       - "LICENSE"
+      # No job reads the Dependabot configuration; the pre-push guard rightly refuses a
+      # skip-CI marker for it, so the filter is the only thing that keeps a config
+      # change from running the full matrix (seven such runs on 2026-09-15).
+      - ".github/dependabot.yml"
   pull_request:
     branches:
       - main
@@ -34,6 +39,8 @@ jobs:
     steps:
       - uses: ioBroker/testing-action-check@v2
         with:
+          # Set by the consistency audit (floor: the repochecker's
+          # minimumNodeVersionCheckAndLint, or engines.node) — never edit by hand.
           node-version: "24.x"
           type-checking: true
           lint: true
@@ -128,25 +135,6 @@ jobs:
         with:
           fail_level: error
 
-  adapter-tests:
-    # The tag push starts a COMPLETE second run: the matrix runs again there, and `deploy`
-    # depends on the tests of its own run. That is the property the repochecker verifies —
-    # never make this job or its step conditional on the ref.
-    if: contains(github.event.head_commit.message, '[skip ci]') == false
-    needs: [check-and-lint]
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        node-version: [22.x, 24.x, 26.x]
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    steps:
-      - name: Run tests
-        uses: ioBroker/testing-action-adapter@v1
-        with:
-          node-version: ${{ matrix.node-version }}
-          os: ${{ matrix.os }}
-          build: true
-
   adapter-inventory:
     # The adapter's own start proof, on every push: it runs against its fixture server
     # (test/inventory.js) and, with a previous release tag, proves that an update reaches
@@ -181,12 +169,45 @@ jobs:
             echo "::error ::the upgrade suite did not run although a previous inventory exists"
             exit 1
           fi
-      - name: Report when the committed inventory lags behind the code
+      - name: Fail when the committed inventory differs from what the code produces
         run: |
           if ! git diff --quiet -- test/objects.inventory.json; then
-            echo "::warning ::test/objects.inventory.json differs from what the adapter produces — the release run regenerates it"
             git diff --stat -- test/objects.inventory.json
+            echo "::error ::test/objects.inventory.json differs from what the adapter produces — regenerate it (npm run test:inventory) and commit it with the code"
+            exit 1
           fi
+
+  adapter-tests:
+    # The tag push starts a COMPLETE second run: the matrix runs again there, and `deploy` depends
+    # on the tests of its own run. That is the property the repochecker verifies — never make this
+    # job or its step conditional on the ref.
+    if: contains(github.event.head_commit.message, '[skip ci]') == false
+    needs: [check-and-lint]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        # DERIVED, not copied: (required u recommended) n valid from the installed
+        # repochecker, everything >= engines.node — apply_workflow_node_matrix_fix sets
+        # this line in release mode. The value below is just today's result.
+        node-version: [22.x, 24.x, 26.x]
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - name: Run tests
+        uses: ioBroker/testing-action-adapter@v1
+        with:
+          node-version: ${{ matrix.node-version }}
+          os: ${{ matrix.os }}
+          build: true
+
+  ci-passed:
+    # The one required check of the automerge ruleset: green only when every job that deploy waits for
+    # is green (every matrix leg, every gate job); a job skipped because of a red dependency fails it.
+    if: ${{ !cancelled() }}
+    needs: [check-and-lint, adapter-tests, repochecker-version-gate, workflow-lint, adapter-inventory]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Every job deploy waits for passed
+        run: echo '${{ toJSON(needs.*.result) }}' | jq -e 'all(. == "success")'
 
   deploy:
     needs: [check-and-lint, adapter-tests, repochecker-version-gate, workflow-lint, adapter-inventory]
@@ -202,9 +223,12 @@ jobs:
     steps:
       - uses: ioBroker/testing-action-deploy@v1
         with:
-          # Publish from the highest even (LTS-line) major of the test matrix: any major
-          # above 22 avoids the npm@latest+Node22 MODULE_NOT_FOUND for promise-retry
-          # during the publish step (seen in parcelapp v0.4.0 deploy).
+          # Always the highest EVEN major of the test matrix, floored at
+          # max(minimumNodeVersionDeploy, engines.node) — the consistency audit aligns
+          # this line in release mode; never edit it by hand. Odd majors never become
+          # LTS (nodejs/Release/schedule.json), and the publish step is exactly where two
+          # npm regressions hit (promise-retry on 22, sigstore on 24) with no gate to
+          # catch them: the repochecker reports nothing above its deploy floor.
           node-version: "26.x"
           build: true
           github-token: ${{ secrets.GITHUB_TOKEN }}
