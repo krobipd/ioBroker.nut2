@@ -264,6 +264,26 @@ Any write to `nut2.0.notify` triggers an immediate poll of all UPS devices; an e
     ### **WORK IN PROGRESS**
 -->
 
+### **WORK IN PROGRESS**
+
+- New: a UPS command that needs a value, such as a delay, can be sent through the new `commands.execute` data point, written the way upscmd takes it
+- New: when the NUT server tracks commands, the log says whether the driver really carried out a command or a new setting, not only that it was sent
+- New: every device shows a pictogram for its NUT device type in the object tree — UPS, PDU, solar charge controller, power supply or transfer switch
+- Fixed: the connection to the NUT server no longer drops during long poll intervals — the adapter keeps it alive while it is idle
+- Fixed: apparent power, real power and percentages carry the right unit and role, and writable temperatures, voltages and currents are settable levels
+- Fixed: text values such as test results, contact states or ups.conf settings stay text instead of turning into numbers or being discarded
+- Fixed: a word or an empty value in a measurement, such as LoadTooLow, leaves the data point empty instead of keeping an old number, without a warning
+- Fixed: renamed data points keep the rooms and functions you assigned them to, and a unit or explanation that no longer applies is removed
+- Fixed: a UPS that is missing from the NUT server for a moment keeps its data points and history; it is removed only after three polls without it
+- Fixed: the status severity stays empty when the status names no power source, instead of claiming OK for a UPS that is off or still starting
+- Fixed: command buttons follow the driver's command list — buttons of commands it no longer offers disappear, and a UPS without commands gets none
+- Fixed: values containing #, quotes or backslashes are read correctly and sent escaped as NUT requires, and credentials NUT cannot carry are refused clearly
+- Fixed: an unreachable NUT server, stale driver data and a reconnect are logged quietly as the states they are instead of as repeated warnings
+- Fixed: a TLS certificate problem stops the retries with one clear message, and a UPS reporting several value ranges shows the full range
+- Improved: names and explanations for every variable and command of the NUT 2.8.5 catalog in all eleven languages, including outlets, groups and sensors
+- Improved: the warning sign marks exactly the commands that can cut power or stop the driver; switching something on is never marked
+- Changed: the upsmon connection is documented as a small helper script, which keeps working with the NUT releases after 2.8.5
+
 ### 0.16.0 (2026-09-15) — stable
 
 - Fixed: every adapter start silently removed the status severity, the device type, every dropdown and every bounded value from the rooms and functions the user had assigned them to
