@@ -52,6 +52,57 @@ describe("inventory freshness", () => {
       "fixture variables without a data point — regenerate: npm run build && npm run test:inventory",
     ).toEqual([]);
   });
+
+  it("every device icon in the inventory IS one of the pictogram files, and every known type has one (E12)", () => {
+    // Read from what the real adapter wrote under js-controller, not from the loader: a path, a
+    // re-encoded file or a device of a known type without an icon would all pass the unit tests.
+    const root = join(__dirname, "..", "..");
+    const inventory = JSON.parse(readFileSync(join(root, "test", "objects.inventory.json"), "utf8")) as Record<
+      string,
+      { type: string; common: { icon?: unknown } }
+    >;
+    const iconDir = join(root, "admin", "icons");
+    const files = new Map(
+      readdirSync(iconDir)
+        .filter(f => f.endsWith(".svg"))
+        .map(f => [readFileSync(join(iconDir, f), "utf8").replace(/\r\n/g, "\n"), f]),
+    );
+    const prefix = "data:image/svg+xml;base64,";
+    const wrong: string[] = [];
+    for (const [id, obj] of Object.entries(inventory)) {
+      const icon = obj.common.icon;
+      if (icon === undefined) {
+        continue;
+      }
+      const decoded =
+        typeof icon === "string" && icon.startsWith(prefix)
+          ? Buffer.from(icon.slice(prefix.length), "base64").toString("utf8")
+          : undefined;
+      if (obj.type !== "device" || decoded === undefined || !files.has(decoded)) {
+        wrong.push(id);
+      }
+    }
+    expect(wrong, "icons that are not one of admin/icons/*.svg").toEqual([]);
+
+    const dir = join(root, "test", "fixtures", "inventory");
+    const missing: string[] = [];
+    for (const file of readdirSync(dir).filter(f => f.endsWith(".json"))) {
+      const fixture = JSON.parse(readFileSync(join(dir, file), "utf8")) as {
+        name: string;
+        vars: Record<string, string>;
+      };
+      const type = fixture.vars["device.type"];
+      if (type === undefined || ![...files.values()].includes(`${type}.svg`)) {
+        continue;
+      }
+      const icon = inventory[`nut2.0.${fixture.name}`]?.common.icon;
+      const decoded = typeof icon === "string" ? Buffer.from(icon.slice(prefix.length), "base64").toString("utf8") : "";
+      if (files.get(decoded) !== `${type}.svg`) {
+        missing.push(`${fixture.name} (${type})`);
+      }
+    }
+    expect(missing, "devices of a known type without their pictogram").toEqual([]);
+  });
 });
 
 describe("explanation style", () => {

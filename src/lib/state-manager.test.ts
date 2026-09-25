@@ -616,6 +616,116 @@ describe("StateManager", () => {
   });
 
   // -----------------------------------------------------------------------
+  // Device pictogram (E12)
+  // -----------------------------------------------------------------------
+  describe("device pictogram (E12)", () => {
+    const UPS_ICON = `data:image/svg+xml;base64,${Buffer.from(
+      readFileSync(join(__dirname, "..", "..", "admin", "icons", "ups.svg"), "utf8").replace(/\r\n/g, "\n"),
+    ).toString("base64")}`;
+    const countDeviceWrites = (adapter: any): (() => number) => {
+      let writes = 0;
+      const orig = adapter.extendObject;
+      adapter.extendObject = (...args: any[]) => {
+        if (args[0] === "ups0") {
+          writes++;
+        }
+        return orig(...args);
+      };
+      return () => writes;
+    };
+
+    it("an existing device gets its pictogram exactly once", async () => {
+      const { adapter, objects } = createMockAdapter();
+      // Byte-identical to what this adapter writes, except the icon — so the test proves the
+      // repair, not merely that a steady state costs nothing.
+      objects.set("ups0", { type: "device", common: { name: { en: "ups0" } }, native: {} });
+      const sm = new StateManager(adapter);
+      await sm.pruneObjectTree(new Set(["ups0"]));
+      const writes = countDeviceWrites(adapter);
+      const vars = [{ name: "device.type", value: "ups" }];
+
+      await sm.updateDeviceName("ups0", "Cellar UPS", vars);
+      await sm.updateDeviceName("ups0", "Cellar UPS", vars);
+      await sm.updateDeviceName("ups0", "Cellar UPS", vars);
+
+      expect(objects.get("ups0")!.common.icon).toBe(UPS_ICON);
+      expect(writes()).toBe(1);
+    });
+
+    it("a stored path icon is replaced by the inline URI exactly once", async () => {
+      const { adapter, objects } = createMockAdapter();
+      objects.set("ups0", { type: "device", common: { name: { en: "ups0" }, icon: "/icons/ups.svg" }, native: {} });
+      const sm = new StateManager(adapter);
+      await sm.pruneObjectTree(new Set(["ups0"]));
+      const writes = countDeviceWrites(adapter);
+      const vars = [{ name: "device.type", value: "ups" }];
+
+      await sm.updateDeviceName("ups0", "Cellar UPS", vars);
+      await sm.updateDeviceName("ups0", "Cellar UPS", vars);
+
+      expect(objects.get("ups0")!.common.icon).toBe(UPS_ICON);
+      expect(writes()).toBe(1);
+    });
+
+    it("a restart with the inline icon already stored writes nothing", async () => {
+      const { adapter, objects } = createMockAdapter();
+      objects.set("ups0", { type: "device", common: { name: { en: "ups0" }, icon: UPS_ICON }, native: {} });
+      const sm = new StateManager(adapter);
+      await sm.pruneObjectTree(new Set(["ups0"]));
+      const writes = countDeviceWrites(adapter);
+
+      await sm.updateDeviceName("ups0", "Cellar UPS", [{ name: "device.type", value: "ups" }]);
+
+      expect(writes()).toBe(0);
+    });
+
+    it("an unknown device.type leaves the stored icon untouched", async () => {
+      const { adapter, objects } = createMockAdapter();
+      objects.set("ups0", { type: "device", common: { name: { en: "ups0" }, icon: "custom.png" }, native: {} });
+      const sm = new StateManager(adapter);
+      await sm.pruneObjectTree(new Set(["ups0"]));
+      const writes = countDeviceWrites(adapter);
+
+      await sm.updateDeviceName("ups0", "Cellar UPS", [{ name: "device.type", value: "battery" }]);
+      await sm.updateDeviceName("ups0", "Cellar UPS", []);
+
+      expect(objects.get("ups0")!.common.icon).toBe("custom.png");
+      expect(writes()).toBe(0);
+    });
+
+    it("name and icon that change together travel in ONE write", async () => {
+      const { adapter, objects } = createMockAdapter();
+      const sm = new StateManager(adapter);
+      await sm.ensureUpsDevice("ups0", "Description unavailable");
+      const writes = countDeviceWrites(adapter);
+
+      await sm.updateDeviceName("ups0", "Description unavailable", [
+        { name: "device.mfr", value: "Eaton" },
+        { name: "device.model", value: "ePDU" },
+        { name: "device.type", value: "pdu" },
+      ]);
+
+      expect(nameEn(objects.get("ups0"))).toBe("Eaton ePDU");
+      expect(String(objects.get("ups0")!.common.icon)).toMatch(/^data:image\/svg\+xml;base64,/);
+      expect(writes()).toBe(1);
+    });
+
+    it("a device re-created after its removal gets the icon again", async () => {
+      const { adapter, objects } = createMockAdapter();
+      const sm = new StateManager(adapter);
+      const vars = [{ name: "device.type", value: "ups" }];
+      await sm.ensureUpsDevice("ups0", "Cellar UPS");
+      await sm.updateDeviceName("ups0", "Cellar UPS", vars);
+      await sm.pruneObjectTree(new Set());
+      expect(objects.has("ups0")).toBe(false);
+
+      await sm.ensureUpsDevice("ups0", "Cellar UPS");
+      await sm.updateDeviceName("ups0", "Cellar UPS", vars);
+      expect(objects.get("ups0")!.common.icon).toBe(UPS_ICON);
+    });
+  });
+
+  // -----------------------------------------------------------------------
   // Channel creation
   // -----------------------------------------------------------------------
   describe("user-facing texts follow the system language", () => {

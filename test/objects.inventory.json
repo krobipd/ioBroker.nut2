@@ -17,7 +17,8 @@
       },
       "statusStates": {
         "onlineId": "nut2.0.device-ats.info.reachable"
-      }
+      },
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSI0IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik02IDE4IGgxMSBNNiA0NiBoMTEgTTQ3IDMyIGgxMSIvPgogIDxwYXRoIGQ9Ik0yMCAxOCBMNDIgMzAiLz4KICA8Y2lyY2xlIGN4PSIyMCIgY3k9IjE4IiByPSIzIi8+CiAgPGNpcmNsZSBjeD0iMjAiIGN5PSI0NiIgcj0iMyIvPgogIDxjaXJjbGUgY3g9IjQ0IiBjeT0iMzIiIHI9IjMiLz4KPC9zdmc+Cg=="
     },
     "native": {},
     "_id": "nut2.0.device-ats"
@@ -92,6 +93,43 @@
     },
     "native": {},
     "_id": "nut2.0.device-ats.commands.beeper-disable"
+  },
+  "nut2.0.device-ats.commands.execute": {
+    "type": "state",
+    "common": {
+      "type": "string",
+      "role": "text",
+      "read": true,
+      "write": true,
+      "name": {
+        "de": "Befehl mit Parameter ausführen",
+        "en": "Run command with parameter",
+        "es": "Ejecutar comando con parámetro",
+        "fr": "Exécuter une commande avec paramètre",
+        "it": "Esegui comando con parametro",
+        "nl": "Opdracht met parameter uitvoeren",
+        "pl": "Wykonaj polecenie z parametrem",
+        "pt": "Executar comando com parâmetro",
+        "ru": "Выполнить команду с параметром",
+        "uk": "Виконати команду з параметром",
+        "zh-cn": "执行带参数的命令"
+      },
+      "desc": {
+        "de": "Einen Befehl der USV und bei Bedarf seinen Wert schreiben, z. B. load.off.delay 120 — dieselbe Form wie bei upscmd",
+        "en": "Write a command the UPS offers and, if needed, its value, e.g. load.off.delay 120 — the same form upscmd takes",
+        "es": "Escribe un comando que ofrezca el SAI y, si hace falta, su valor, p. ej. load.off.delay 120 — la misma forma que acepta upscmd",
+        "fr": "Écrivez une commande proposée par l'onduleur et, si besoin, sa valeur, p. ex. load.off.delay 120 — la même forme que pour upscmd",
+        "it": "Scrivi un comando offerto dall'UPS e, se serve, il suo valore, ad es. load.off.delay 120 — la stessa forma di upscmd",
+        "nl": "Schrijf een opdracht die de UPS aanbiedt en zo nodig de waarde, bijv. load.off.delay 120 — dezelfde vorm als bij upscmd",
+        "pl": "Wpisz polecenie oferowane przez UPS i w razie potrzeby jego wartość, np. load.off.delay 120 — w tej samej formie co w upscmd",
+        "pt": "Escreva um comando oferecido pelo UPS e, se necessário, o seu valor, p. ex. load.off.delay 120 — a mesma forma que o upscmd aceita",
+        "ru": "Запишите команду, которую предлагает ИБП, и при необходимости её значение, например load.off.delay 120 — в той же форме, что и для upscmd",
+        "uk": "Запишіть команду, яку пропонує ДБЖ, і за потреби її значення, наприклад load.off.delay 120 — у тій самій формі, що й для upscmd",
+        "zh-cn": "写入 UPS 提供的命令，必要时附上其值，例如 load.off.delay 120 — 与 upscmd 的格式相同"
+      }
+    },
+    "native": {},
+    "_id": "nut2.0.device-ats.commands.execute"
   },
   "nut2.0.device-ats.device": {
     "type": "channel",
@@ -1306,17 +1344,17 @@
         "zh-cn": "严重程度"
       },
       "desc": {
-        "de": "Wie ernst die Stromlage ist: 0 gut, 4 Abschaltung steht bevor",
-        "en": "How serious the power situation is: 0 fine, 4 shutdown imminent",
-        "es": "Gravedad de la situación eléctrica: 0 bien, 4 apagado inminente",
-        "fr": "Gravité de la situation électrique : 0 bon, 4 arrêt imminent",
-        "it": "Quanto è grave la situazione elettrica: 0 bene, 4 spegnimento imminente",
-        "nl": "Hoe ernstig de stroomsituatie is: 0 goed, 4 uitschakeling nabij",
-        "pl": "Jak poważna jest sytuacja zasilania: 0 dobrze, 4 wyłączenie tuż-tuż",
-        "pt": "Quão grave é a situação de energia: 0 bem, 4 desligamento iminente",
-        "ru": "Насколько серьёзна ситуация с питанием: 0 — норма, 4 — скорое отключение",
-        "uk": "Наскільки серйозна ситуація з живленням: 0 — добре, 4 — скоро вимкнення",
-        "zh-cn": "供电状况的严重程度：0 正常，4 即将关机"
+        "de": "Wie ernst die Stromlage ist: 0 gut, 4 Abschaltung steht bevor; leer, solange die USV nicht meldet, woher ihr Strom kommt",
+        "en": "How serious the power situation is: 0 fine, 4 shutdown imminent; empty while the UPS does not say where its power comes from",
+        "es": "Gravedad de la situación eléctrica: 0 bien, 4 apagado inminente; vacío mientras el SAI no indique de dónde viene su energía",
+        "fr": "Gravité de la situation électrique : 0 normal, 4 arrêt imminent ; vide tant que l'onduleur n'indique pas d'où vient son alimentation",
+        "it": "Gravità della situazione di alimentazione: 0 tutto bene, 4 spegnimento imminente; vuoto finché l'UPS non indica da dove arriva l'energia",
+        "nl": "Hoe ernstig de stroomsituatie is: 0 in orde, 4 uitschakeling op handen; leeg zolang de UPS niet meldt waar de stroom vandaan komt",
+        "pl": "Jak poważna jest sytuacja zasilania: 0 w porządku, 4 wyłączenie nieuchronne; puste, dopóki UPS nie poda, skąd pochodzi zasilanie",
+        "pt": "Gravidade da situação de energia: 0 tudo bem, 4 desligamento iminente; vazio enquanto o UPS não indicar de onde vem a energia",
+        "ru": "Насколько серьёзна ситуация с питанием: 0 — всё в порядке, 4 — отключение неизбежно; пусто, пока ИБП не сообщает, откуда берётся питание",
+        "uk": "Наскільки серйозна ситуація з живленням: 0 — усе гаразд, 4 — вимкнення неминуче; порожньо, поки ДБЖ не повідомляє, звідки надходить живлення",
+        "zh-cn": "供电情况的严重程度：0 正常，4 即将关机；UPS 未报告电源来源时为空"
       },
       "states": {
         "0": "OK",
@@ -1528,7 +1566,8 @@
       },
       "statusStates": {
         "onlineId": "nut2.0.device-pdu.info.reachable"
-      }
+      },
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSI0IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik04IDIyIGg0OCBhNCA0IDAgMCAxIDQgNCB2MTIgYTQgNCAwIDAgMSAtNCA0IGgtNDggYTQgNCAwIDAgMSAtNCAtNCB2LTEyIGE0IDQgMCAwIDEgNCAtNCB6Ii8+CiAgPGNpcmNsZSBjeD0iMTgiIGN5PSIzMiIgcj0iNCIvPgogIDxjaXJjbGUgY3g9IjMyIiBjeT0iMzIiIHI9IjQiLz4KICA8Y2lyY2xlIGN4PSI0NiIgY3k9IjMyIiByPSI0Ii8+Cjwvc3ZnPgo="
     },
     "native": {},
     "_id": "nut2.0.device-pdu"
@@ -1603,6 +1642,43 @@
     },
     "native": {},
     "_id": "nut2.0.device-pdu.commands.beeper-disable"
+  },
+  "nut2.0.device-pdu.commands.execute": {
+    "type": "state",
+    "common": {
+      "type": "string",
+      "role": "text",
+      "read": true,
+      "write": true,
+      "name": {
+        "de": "Befehl mit Parameter ausführen",
+        "en": "Run command with parameter",
+        "es": "Ejecutar comando con parámetro",
+        "fr": "Exécuter une commande avec paramètre",
+        "it": "Esegui comando con parametro",
+        "nl": "Opdracht met parameter uitvoeren",
+        "pl": "Wykonaj polecenie z parametrem",
+        "pt": "Executar comando com parâmetro",
+        "ru": "Выполнить команду с параметром",
+        "uk": "Виконати команду з параметром",
+        "zh-cn": "执行带参数的命令"
+      },
+      "desc": {
+        "de": "Einen Befehl der USV und bei Bedarf seinen Wert schreiben, z. B. load.off.delay 120 — dieselbe Form wie bei upscmd",
+        "en": "Write a command the UPS offers and, if needed, its value, e.g. load.off.delay 120 — the same form upscmd takes",
+        "es": "Escribe un comando que ofrezca el SAI y, si hace falta, su valor, p. ej. load.off.delay 120 — la misma forma que acepta upscmd",
+        "fr": "Écrivez une commande proposée par l'onduleur et, si besoin, sa valeur, p. ex. load.off.delay 120 — la même forme que pour upscmd",
+        "it": "Scrivi un comando offerto dall'UPS e, se serve, il suo valore, ad es. load.off.delay 120 — la stessa forma di upscmd",
+        "nl": "Schrijf een opdracht die de UPS aanbiedt en zo nodig de waarde, bijv. load.off.delay 120 — dezelfde vorm als bij upscmd",
+        "pl": "Wpisz polecenie oferowane przez UPS i w razie potrzeby jego wartość, np. load.off.delay 120 — w tej samej formie co w upscmd",
+        "pt": "Escreva um comando oferecido pelo UPS e, se necessário, o seu valor, p. ex. load.off.delay 120 — a mesma forma que o upscmd aceita",
+        "ru": "Запишите команду, которую предлагает ИБП, и при необходимости её значение, например load.off.delay 120 — в той же форме, что и для upscmd",
+        "uk": "Запишіть команду, яку пропонує ДБЖ, і за потреби її значення, наприклад load.off.delay 120 — у тій самій формі, що й для upscmd",
+        "zh-cn": "写入 UPS 提供的命令，必要时附上其值，例如 load.off.delay 120 — 与 upscmd 的格式相同"
+      }
+    },
+    "native": {},
+    "_id": "nut2.0.device-pdu.commands.execute"
   },
   "nut2.0.device-pdu.device": {
     "type": "channel",
@@ -2817,17 +2893,17 @@
         "zh-cn": "严重程度"
       },
       "desc": {
-        "de": "Wie ernst die Stromlage ist: 0 gut, 4 Abschaltung steht bevor",
-        "en": "How serious the power situation is: 0 fine, 4 shutdown imminent",
-        "es": "Gravedad de la situación eléctrica: 0 bien, 4 apagado inminente",
-        "fr": "Gravité de la situation électrique : 0 bon, 4 arrêt imminent",
-        "it": "Quanto è grave la situazione elettrica: 0 bene, 4 spegnimento imminente",
-        "nl": "Hoe ernstig de stroomsituatie is: 0 goed, 4 uitschakeling nabij",
-        "pl": "Jak poważna jest sytuacja zasilania: 0 dobrze, 4 wyłączenie tuż-tuż",
-        "pt": "Quão grave é a situação de energia: 0 bem, 4 desligamento iminente",
-        "ru": "Насколько серьёзна ситуация с питанием: 0 — норма, 4 — скорое отключение",
-        "uk": "Наскільки серйозна ситуація з живленням: 0 — добре, 4 — скоро вимкнення",
-        "zh-cn": "供电状况的严重程度：0 正常，4 即将关机"
+        "de": "Wie ernst die Stromlage ist: 0 gut, 4 Abschaltung steht bevor; leer, solange die USV nicht meldet, woher ihr Strom kommt",
+        "en": "How serious the power situation is: 0 fine, 4 shutdown imminent; empty while the UPS does not say where its power comes from",
+        "es": "Gravedad de la situación eléctrica: 0 bien, 4 apagado inminente; vacío mientras el SAI no indique de dónde viene su energía",
+        "fr": "Gravité de la situation électrique : 0 normal, 4 arrêt imminent ; vide tant que l'onduleur n'indique pas d'où vient son alimentation",
+        "it": "Gravità della situazione di alimentazione: 0 tutto bene, 4 spegnimento imminente; vuoto finché l'UPS non indica da dove arriva l'energia",
+        "nl": "Hoe ernstig de stroomsituatie is: 0 in orde, 4 uitschakeling op handen; leeg zolang de UPS niet meldt waar de stroom vandaan komt",
+        "pl": "Jak poważna jest sytuacja zasilania: 0 w porządku, 4 wyłączenie nieuchronne; puste, dopóki UPS nie poda, skąd pochodzi zasilanie",
+        "pt": "Gravidade da situação de energia: 0 tudo bem, 4 desligamento iminente; vazio enquanto o UPS não indicar de onde vem a energia",
+        "ru": "Насколько серьёзна ситуация с питанием: 0 — всё в порядке, 4 — отключение неизбежно; пусто, пока ИБП не сообщает, откуда берётся питание",
+        "uk": "Наскільки серйозна ситуація з живленням: 0 — усе гаразд, 4 — вимкнення неминуче; порожньо, поки ДБЖ не повідомляє, звідки надходить живлення",
+        "zh-cn": "供电情况的严重程度：0 正常，4 即将关机；UPS 未报告电源来源时为空"
       },
       "states": {
         "0": "OK",
@@ -3039,7 +3115,8 @@
       },
       "statusStates": {
         "onlineId": "nut2.0.device-psu.info.reachable"
-      }
+      },
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSI0IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik0xNCAxNCBoMzYgYTQgNCAwIDAgMSA0IDQgdjI4IGE0IDQgMCAwIDEgLTQgNCBoLTM2IGE0IDQgMCAwIDEgLTQgLTQgdi0yOCBhNCA0IDAgMCAxIDQgLTQgeiIvPgogIDxwYXRoIGQ9Ik0xNyAzMiBxNC41IC04IDkgMCB0OSAwIi8+CiAgPHBhdGggZD0iTTQwIDI4IGg4IE00MCAzNiBoOCIvPgo8L3N2Zz4K"
     },
     "native": {},
     "_id": "nut2.0.device-psu"
@@ -3114,6 +3191,43 @@
     },
     "native": {},
     "_id": "nut2.0.device-psu.commands.beeper-disable"
+  },
+  "nut2.0.device-psu.commands.execute": {
+    "type": "state",
+    "common": {
+      "type": "string",
+      "role": "text",
+      "read": true,
+      "write": true,
+      "name": {
+        "de": "Befehl mit Parameter ausführen",
+        "en": "Run command with parameter",
+        "es": "Ejecutar comando con parámetro",
+        "fr": "Exécuter une commande avec paramètre",
+        "it": "Esegui comando con parametro",
+        "nl": "Opdracht met parameter uitvoeren",
+        "pl": "Wykonaj polecenie z parametrem",
+        "pt": "Executar comando com parâmetro",
+        "ru": "Выполнить команду с параметром",
+        "uk": "Виконати команду з параметром",
+        "zh-cn": "执行带参数的命令"
+      },
+      "desc": {
+        "de": "Einen Befehl der USV und bei Bedarf seinen Wert schreiben, z. B. load.off.delay 120 — dieselbe Form wie bei upscmd",
+        "en": "Write a command the UPS offers and, if needed, its value, e.g. load.off.delay 120 — the same form upscmd takes",
+        "es": "Escribe un comando que ofrezca el SAI y, si hace falta, su valor, p. ej. load.off.delay 120 — la misma forma que acepta upscmd",
+        "fr": "Écrivez une commande proposée par l'onduleur et, si besoin, sa valeur, p. ex. load.off.delay 120 — la même forme que pour upscmd",
+        "it": "Scrivi un comando offerto dall'UPS e, se serve, il suo valore, ad es. load.off.delay 120 — la stessa forma di upscmd",
+        "nl": "Schrijf een opdracht die de UPS aanbiedt en zo nodig de waarde, bijv. load.off.delay 120 — dezelfde vorm als bij upscmd",
+        "pl": "Wpisz polecenie oferowane przez UPS i w razie potrzeby jego wartość, np. load.off.delay 120 — w tej samej formie co w upscmd",
+        "pt": "Escreva um comando oferecido pelo UPS e, se necessário, o seu valor, p. ex. load.off.delay 120 — a mesma forma que o upscmd aceita",
+        "ru": "Запишите команду, которую предлагает ИБП, и при необходимости её значение, например load.off.delay 120 — в той же форме, что и для upscmd",
+        "uk": "Запишіть команду, яку пропонує ДБЖ, і за потреби її значення, наприклад load.off.delay 120 — у тій самій формі, що й для upscmd",
+        "zh-cn": "写入 UPS 提供的命令，必要时附上其值，例如 load.off.delay 120 — 与 upscmd 的格式相同"
+      }
+    },
+    "native": {},
+    "_id": "nut2.0.device-psu.commands.execute"
   },
   "nut2.0.device-psu.device": {
     "type": "channel",
@@ -4328,17 +4442,17 @@
         "zh-cn": "严重程度"
       },
       "desc": {
-        "de": "Wie ernst die Stromlage ist: 0 gut, 4 Abschaltung steht bevor",
-        "en": "How serious the power situation is: 0 fine, 4 shutdown imminent",
-        "es": "Gravedad de la situación eléctrica: 0 bien, 4 apagado inminente",
-        "fr": "Gravité de la situation électrique : 0 bon, 4 arrêt imminent",
-        "it": "Quanto è grave la situazione elettrica: 0 bene, 4 spegnimento imminente",
-        "nl": "Hoe ernstig de stroomsituatie is: 0 goed, 4 uitschakeling nabij",
-        "pl": "Jak poważna jest sytuacja zasilania: 0 dobrze, 4 wyłączenie tuż-tuż",
-        "pt": "Quão grave é a situação de energia: 0 bem, 4 desligamento iminente",
-        "ru": "Насколько серьёзна ситуация с питанием: 0 — норма, 4 — скорое отключение",
-        "uk": "Наскільки серйозна ситуація з живленням: 0 — добре, 4 — скоро вимкнення",
-        "zh-cn": "供电状况的严重程度：0 正常，4 即将关机"
+        "de": "Wie ernst die Stromlage ist: 0 gut, 4 Abschaltung steht bevor; leer, solange die USV nicht meldet, woher ihr Strom kommt",
+        "en": "How serious the power situation is: 0 fine, 4 shutdown imminent; empty while the UPS does not say where its power comes from",
+        "es": "Gravedad de la situación eléctrica: 0 bien, 4 apagado inminente; vacío mientras el SAI no indique de dónde viene su energía",
+        "fr": "Gravité de la situation électrique : 0 normal, 4 arrêt imminent ; vide tant que l'onduleur n'indique pas d'où vient son alimentation",
+        "it": "Gravità della situazione di alimentazione: 0 tutto bene, 4 spegnimento imminente; vuoto finché l'UPS non indica da dove arriva l'energia",
+        "nl": "Hoe ernstig de stroomsituatie is: 0 in orde, 4 uitschakeling op handen; leeg zolang de UPS niet meldt waar de stroom vandaan komt",
+        "pl": "Jak poważna jest sytuacja zasilania: 0 w porządku, 4 wyłączenie nieuchronne; puste, dopóki UPS nie poda, skąd pochodzi zasilanie",
+        "pt": "Gravidade da situação de energia: 0 tudo bem, 4 desligamento iminente; vazio enquanto o UPS não indicar de onde vem a energia",
+        "ru": "Насколько серьёзна ситуация с питанием: 0 — всё в порядке, 4 — отключение неизбежно; пусто, пока ИБП не сообщает, откуда берётся питание",
+        "uk": "Наскільки серйозна ситуація з живленням: 0 — усе гаразд, 4 — вимкнення неминуче; порожньо, поки ДБЖ не повідомляє, звідки надходить живлення",
+        "zh-cn": "供电情况的严重程度：0 正常，4 即将关机；UPS 未报告电源来源时为空"
       },
       "states": {
         "0": "OK",
@@ -4550,7 +4664,8 @@
       },
       "statusStates": {
         "onlineId": "nut2.0.device-scd.info.reachable"
-      }
+      },
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSI0IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxjaXJjbGUgY3g9IjMyIiBjeT0iMzIiIHI9IjEwIi8+CiAgPHBhdGggZD0iTTMyIDYgdjggTTMyIDUwIHY4IE02IDMyIGg4IE01MCAzMiBoOCBNMTMuNiAxMy42IGw1LjcgNS43IE00NC43IDQ0LjcgbDUuNyA1LjcgTTEzLjYgNTAuNCBsNS43IC01LjcgTTQ0LjcgMTkuMyBsNS43IC01LjciLz4KPC9zdmc+Cg=="
     },
     "native": {},
     "_id": "nut2.0.device-scd"
@@ -4625,6 +4740,43 @@
     },
     "native": {},
     "_id": "nut2.0.device-scd.commands.beeper-disable"
+  },
+  "nut2.0.device-scd.commands.execute": {
+    "type": "state",
+    "common": {
+      "type": "string",
+      "role": "text",
+      "read": true,
+      "write": true,
+      "name": {
+        "de": "Befehl mit Parameter ausführen",
+        "en": "Run command with parameter",
+        "es": "Ejecutar comando con parámetro",
+        "fr": "Exécuter une commande avec paramètre",
+        "it": "Esegui comando con parametro",
+        "nl": "Opdracht met parameter uitvoeren",
+        "pl": "Wykonaj polecenie z parametrem",
+        "pt": "Executar comando com parâmetro",
+        "ru": "Выполнить команду с параметром",
+        "uk": "Виконати команду з параметром",
+        "zh-cn": "执行带参数的命令"
+      },
+      "desc": {
+        "de": "Einen Befehl der USV und bei Bedarf seinen Wert schreiben, z. B. load.off.delay 120 — dieselbe Form wie bei upscmd",
+        "en": "Write a command the UPS offers and, if needed, its value, e.g. load.off.delay 120 — the same form upscmd takes",
+        "es": "Escribe un comando que ofrezca el SAI y, si hace falta, su valor, p. ej. load.off.delay 120 — la misma forma que acepta upscmd",
+        "fr": "Écrivez une commande proposée par l'onduleur et, si besoin, sa valeur, p. ex. load.off.delay 120 — la même forme que pour upscmd",
+        "it": "Scrivi un comando offerto dall'UPS e, se serve, il suo valore, ad es. load.off.delay 120 — la stessa forma di upscmd",
+        "nl": "Schrijf een opdracht die de UPS aanbiedt en zo nodig de waarde, bijv. load.off.delay 120 — dezelfde vorm als bij upscmd",
+        "pl": "Wpisz polecenie oferowane przez UPS i w razie potrzeby jego wartość, np. load.off.delay 120 — w tej samej formie co w upscmd",
+        "pt": "Escreva um comando oferecido pelo UPS e, se necessário, o seu valor, p. ex. load.off.delay 120 — a mesma forma que o upscmd aceita",
+        "ru": "Запишите команду, которую предлагает ИБП, и при необходимости её значение, например load.off.delay 120 — в той же форме, что и для upscmd",
+        "uk": "Запишіть команду, яку пропонує ДБЖ, і за потреби її значення, наприклад load.off.delay 120 — у тій самій формі, що й для upscmd",
+        "zh-cn": "写入 UPS 提供的命令，必要时附上其值，例如 load.off.delay 120 — 与 upscmd 的格式相同"
+      }
+    },
+    "native": {},
+    "_id": "nut2.0.device-scd.commands.execute"
   },
   "nut2.0.device-scd.device": {
     "type": "channel",
@@ -5839,17 +5991,17 @@
         "zh-cn": "严重程度"
       },
       "desc": {
-        "de": "Wie ernst die Stromlage ist: 0 gut, 4 Abschaltung steht bevor",
-        "en": "How serious the power situation is: 0 fine, 4 shutdown imminent",
-        "es": "Gravedad de la situación eléctrica: 0 bien, 4 apagado inminente",
-        "fr": "Gravité de la situation électrique : 0 bon, 4 arrêt imminent",
-        "it": "Quanto è grave la situazione elettrica: 0 bene, 4 spegnimento imminente",
-        "nl": "Hoe ernstig de stroomsituatie is: 0 goed, 4 uitschakeling nabij",
-        "pl": "Jak poważna jest sytuacja zasilania: 0 dobrze, 4 wyłączenie tuż-tuż",
-        "pt": "Quão grave é a situação de energia: 0 bem, 4 desligamento iminente",
-        "ru": "Насколько серьёзна ситуация с питанием: 0 — норма, 4 — скорое отключение",
-        "uk": "Наскільки серйозна ситуація з живленням: 0 — добре, 4 — скоро вимкнення",
-        "zh-cn": "供电状况的严重程度：0 正常，4 即将关机"
+        "de": "Wie ernst die Stromlage ist: 0 gut, 4 Abschaltung steht bevor; leer, solange die USV nicht meldet, woher ihr Strom kommt",
+        "en": "How serious the power situation is: 0 fine, 4 shutdown imminent; empty while the UPS does not say where its power comes from",
+        "es": "Gravedad de la situación eléctrica: 0 bien, 4 apagado inminente; vacío mientras el SAI no indique de dónde viene su energía",
+        "fr": "Gravité de la situation électrique : 0 normal, 4 arrêt imminent ; vide tant que l'onduleur n'indique pas d'où vient son alimentation",
+        "it": "Gravità della situazione di alimentazione: 0 tutto bene, 4 spegnimento imminente; vuoto finché l'UPS non indica da dove arriva l'energia",
+        "nl": "Hoe ernstig de stroomsituatie is: 0 in orde, 4 uitschakeling op handen; leeg zolang de UPS niet meldt waar de stroom vandaan komt",
+        "pl": "Jak poważna jest sytuacja zasilania: 0 w porządku, 4 wyłączenie nieuchronne; puste, dopóki UPS nie poda, skąd pochodzi zasilanie",
+        "pt": "Gravidade da situação de energia: 0 tudo bem, 4 desligamento iminente; vazio enquanto o UPS não indicar de onde vem a energia",
+        "ru": "Насколько серьёзна ситуация с питанием: 0 — всё в порядке, 4 — отключение неизбежно; пусто, пока ИБП не сообщает, откуда берётся питание",
+        "uk": "Наскільки серйозна ситуація з живленням: 0 — усе гаразд, 4 — вимкнення неминуче; порожньо, поки ДБЖ не повідомляє, звідки надходить живлення",
+        "zh-cn": "供电情况的严重程度：0 正常，4 即将关机；UPS 未报告电源来源时为空"
       },
       "states": {
         "0": "OK",
@@ -6284,7 +6436,8 @@
       },
       "statusStates": {
         "onlineId": "nut2.0.ups-edge-cases.info.reachable"
-      }
+      },
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSI0IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik0yMCA2IGgyNCBhNCA0IDAgMCAxIDQgNCB2NDQgYTQgNCAwIDAgMSAtNCA0IGgtMjQgYTQgNCAwIDAgMSAtNCAtNCB2LTQ0IGE0IDQgMCAwIDEgNCAtNCB6Ii8+CiAgPHBhdGggZD0iTTM1IDE1IEwyNiAzMyBoMTEgbC05IDE2Ii8+Cjwvc3ZnPgo="
     },
     "native": {},
     "_id": "nut2.0.ups-edge-cases"
@@ -6644,6 +6797,43 @@
     },
     "native": {},
     "_id": "nut2.0.ups-edge-cases.commands.driver-private-unknown"
+  },
+  "nut2.0.ups-edge-cases.commands.execute": {
+    "type": "state",
+    "common": {
+      "type": "string",
+      "role": "text",
+      "read": true,
+      "write": true,
+      "name": {
+        "de": "Befehl mit Parameter ausführen",
+        "en": "Run command with parameter",
+        "es": "Ejecutar comando con parámetro",
+        "fr": "Exécuter une commande avec paramètre",
+        "it": "Esegui comando con parametro",
+        "nl": "Opdracht met parameter uitvoeren",
+        "pl": "Wykonaj polecenie z parametrem",
+        "pt": "Executar comando com parâmetro",
+        "ru": "Выполнить команду с параметром",
+        "uk": "Виконати команду з параметром",
+        "zh-cn": "执行带参数的命令"
+      },
+      "desc": {
+        "de": "Einen Befehl der USV und bei Bedarf seinen Wert schreiben, z. B. load.off.delay 120 — dieselbe Form wie bei upscmd",
+        "en": "Write a command the UPS offers and, if needed, its value, e.g. load.off.delay 120 — the same form upscmd takes",
+        "es": "Escribe un comando que ofrezca el SAI y, si hace falta, su valor, p. ej. load.off.delay 120 — la misma forma que acepta upscmd",
+        "fr": "Écrivez une commande proposée par l'onduleur et, si besoin, sa valeur, p. ex. load.off.delay 120 — la même forme que pour upscmd",
+        "it": "Scrivi un comando offerto dall'UPS e, se serve, il suo valore, ad es. load.off.delay 120 — la stessa forma di upscmd",
+        "nl": "Schrijf een opdracht die de UPS aanbiedt en zo nodig de waarde, bijv. load.off.delay 120 — dezelfde vorm als bij upscmd",
+        "pl": "Wpisz polecenie oferowane przez UPS i w razie potrzeby jego wartość, np. load.off.delay 120 — w tej samej formie co w upscmd",
+        "pt": "Escreva um comando oferecido pelo UPS e, se necessário, o seu valor, p. ex. load.off.delay 120 — a mesma forma que o upscmd aceita",
+        "ru": "Запишите команду, которую предлагает ИБП, и при необходимости её значение, например load.off.delay 120 — в той же форме, что и для upscmd",
+        "uk": "Запишіть команду, яку пропонує ДБЖ, і за потреби її значення, наприклад load.off.delay 120 — у тій самій формі, що й для upscmd",
+        "zh-cn": "写入 UPS 提供的命令，必要时附上其值，例如 load.off.delay 120 — 与 upscmd 的格式相同"
+      }
+    },
+    "native": {},
+    "_id": "nut2.0.ups-edge-cases.commands.execute"
   },
   "nut2.0.ups-edge-cases.commands.load-off": {
     "type": "state",
@@ -8026,17 +8216,17 @@
         "zh-cn": "严重程度"
       },
       "desc": {
-        "de": "Wie ernst die Stromlage ist: 0 gut, 4 Abschaltung steht bevor",
-        "en": "How serious the power situation is: 0 fine, 4 shutdown imminent",
-        "es": "Gravedad de la situación eléctrica: 0 bien, 4 apagado inminente",
-        "fr": "Gravité de la situation électrique : 0 bon, 4 arrêt imminent",
-        "it": "Quanto è grave la situazione elettrica: 0 bene, 4 spegnimento imminente",
-        "nl": "Hoe ernstig de stroomsituatie is: 0 goed, 4 uitschakeling nabij",
-        "pl": "Jak poważna jest sytuacja zasilania: 0 dobrze, 4 wyłączenie tuż-tuż",
-        "pt": "Quão grave é a situação de energia: 0 bem, 4 desligamento iminente",
-        "ru": "Насколько серьёзна ситуация с питанием: 0 — норма, 4 — скорое отключение",
-        "uk": "Наскільки серйозна ситуація з живленням: 0 — добре, 4 — скоро вимкнення",
-        "zh-cn": "供电状况的严重程度：0 正常，4 即将关机"
+        "de": "Wie ernst die Stromlage ist: 0 gut, 4 Abschaltung steht bevor; leer, solange die USV nicht meldet, woher ihr Strom kommt",
+        "en": "How serious the power situation is: 0 fine, 4 shutdown imminent; empty while the UPS does not say where its power comes from",
+        "es": "Gravedad de la situación eléctrica: 0 bien, 4 apagado inminente; vacío mientras el SAI no indique de dónde viene su energía",
+        "fr": "Gravité de la situation électrique : 0 normal, 4 arrêt imminent ; vide tant que l'onduleur n'indique pas d'où vient son alimentation",
+        "it": "Gravità della situazione di alimentazione: 0 tutto bene, 4 spegnimento imminente; vuoto finché l'UPS non indica da dove arriva l'energia",
+        "nl": "Hoe ernstig de stroomsituatie is: 0 in orde, 4 uitschakeling op handen; leeg zolang de UPS niet meldt waar de stroom vandaan komt",
+        "pl": "Jak poważna jest sytuacja zasilania: 0 w porządku, 4 wyłączenie nieuchronne; puste, dopóki UPS nie poda, skąd pochodzi zasilanie",
+        "pt": "Gravidade da situação de energia: 0 tudo bem, 4 desligamento iminente; vazio enquanto o UPS não indicar de onde vem a energia",
+        "ru": "Насколько серьёзна ситуация с питанием: 0 — всё в порядке, 4 — отключение неизбежно; пусто, пока ИБП не сообщает, откуда берётся питание",
+        "uk": "Наскільки серйозна ситуація з живленням: 0 — усе гаразд, 4 — вимкнення неминуче; порожньо, поки ДБЖ не повідомляє, звідки надходить живлення",
+        "zh-cn": "供电情况的严重程度：0 正常，4 即将关机；UPS 未报告电源来源时为空"
       },
       "states": {
         "0": "OK",
@@ -8297,7 +8487,7 @@
     "type": "state",
     "common": {
       "type": "number",
-      "role": "value.power",
+      "role": "value",
       "unit": "VA",
       "read": true,
       "write": false,
@@ -8448,7 +8638,7 @@
     "type": "state",
     "common": {
       "type": "number",
-      "role": "level",
+      "role": "level.timer",
       "unit": "s",
       "read": true,
       "write": true,
@@ -8540,7 +8730,8 @@
       },
       "statusStates": {
         "onlineId": "nut2.0.ups-outlets-ambient.info.reachable"
-      }
+      },
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSI0IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik0yMCA2IGgyNCBhNCA0IDAgMCAxIDQgNCB2NDQgYTQgNCAwIDAgMSAtNCA0IGgtMjQgYTQgNCAwIDAgMSAtNCAtNCB2LTQ0IGE0IDQgMCAwIDEgNCAtNCB6Ii8+CiAgPHBhdGggZD0iTTM1IDE1IEwyNiAzMyBoMTEgbC05IDE2Ii8+Cjwvc3ZnPgo="
     },
     "native": {},
     "_id": "nut2.0.ups-outlets-ambient"
@@ -9216,6 +9407,43 @@
     },
     "native": {},
     "_id": "nut2.0.ups-outlets-ambient.commands.beeper-mute"
+  },
+  "nut2.0.ups-outlets-ambient.commands.execute": {
+    "type": "state",
+    "common": {
+      "type": "string",
+      "role": "text",
+      "read": true,
+      "write": true,
+      "name": {
+        "de": "Befehl mit Parameter ausführen",
+        "en": "Run command with parameter",
+        "es": "Ejecutar comando con parámetro",
+        "fr": "Exécuter une commande avec paramètre",
+        "it": "Esegui comando con parametro",
+        "nl": "Opdracht met parameter uitvoeren",
+        "pl": "Wykonaj polecenie z parametrem",
+        "pt": "Executar comando com parâmetro",
+        "ru": "Выполнить команду с параметром",
+        "uk": "Виконати команду з параметром",
+        "zh-cn": "执行带参数的命令"
+      },
+      "desc": {
+        "de": "Einen Befehl der USV und bei Bedarf seinen Wert schreiben, z. B. load.off.delay 120 — dieselbe Form wie bei upscmd",
+        "en": "Write a command the UPS offers and, if needed, its value, e.g. load.off.delay 120 — the same form upscmd takes",
+        "es": "Escribe un comando que ofrezca el SAI y, si hace falta, su valor, p. ej. load.off.delay 120 — la misma forma que acepta upscmd",
+        "fr": "Écrivez une commande proposée par l'onduleur et, si besoin, sa valeur, p. ex. load.off.delay 120 — la même forme que pour upscmd",
+        "it": "Scrivi un comando offerto dall'UPS e, se serve, il suo valore, ad es. load.off.delay 120 — la stessa forma di upscmd",
+        "nl": "Schrijf een opdracht die de UPS aanbiedt en zo nodig de waarde, bijv. load.off.delay 120 — dezelfde vorm als bij upscmd",
+        "pl": "Wpisz polecenie oferowane przez UPS i w razie potrzeby jego wartość, np. load.off.delay 120 — w tej samej formie co w upscmd",
+        "pt": "Escreva um comando oferecido pelo UPS e, se necessário, o seu valor, p. ex. load.off.delay 120 — a mesma forma que o upscmd aceita",
+        "ru": "Запишите команду, которую предлагает ИБП, и при необходимости её значение, например load.off.delay 120 — в той же форме, что и для upscmd",
+        "uk": "Запишіть команду, яку пропонує ДБЖ, і за потреби її значення, наприклад load.off.delay 120 — у тій самій формі, що й для upscmd",
+        "zh-cn": "写入 UPS 提供的命令，必要时附上其值，例如 load.off.delay 120 — 与 upscmd 的格式相同"
+      }
+    },
+    "native": {},
+    "_id": "nut2.0.ups-outlets-ambient.commands.execute"
   },
   "nut2.0.ups-outlets-ambient.commands.outlet-1-load-cycle": {
     "type": "state",
@@ -11342,17 +11570,17 @@
         "zh-cn": "严重程度"
       },
       "desc": {
-        "de": "Wie ernst die Stromlage ist: 0 gut, 4 Abschaltung steht bevor",
-        "en": "How serious the power situation is: 0 fine, 4 shutdown imminent",
-        "es": "Gravedad de la situación eléctrica: 0 bien, 4 apagado inminente",
-        "fr": "Gravité de la situation électrique : 0 bon, 4 arrêt imminent",
-        "it": "Quanto è grave la situazione elettrica: 0 bene, 4 spegnimento imminente",
-        "nl": "Hoe ernstig de stroomsituatie is: 0 goed, 4 uitschakeling nabij",
-        "pl": "Jak poważna jest sytuacja zasilania: 0 dobrze, 4 wyłączenie tuż-tuż",
-        "pt": "Quão grave é a situação de energia: 0 bem, 4 desligamento iminente",
-        "ru": "Насколько серьёзна ситуация с питанием: 0 — норма, 4 — скорое отключение",
-        "uk": "Наскільки серйозна ситуація з живленням: 0 — добре, 4 — скоро вимкнення",
-        "zh-cn": "供电状况的严重程度：0 正常，4 即将关机"
+        "de": "Wie ernst die Stromlage ist: 0 gut, 4 Abschaltung steht bevor; leer, solange die USV nicht meldet, woher ihr Strom kommt",
+        "en": "How serious the power situation is: 0 fine, 4 shutdown imminent; empty while the UPS does not say where its power comes from",
+        "es": "Gravedad de la situación eléctrica: 0 bien, 4 apagado inminente; vacío mientras el SAI no indique de dónde viene su energía",
+        "fr": "Gravité de la situation électrique : 0 normal, 4 arrêt imminent ; vide tant que l'onduleur n'indique pas d'où vient son alimentation",
+        "it": "Gravità della situazione di alimentazione: 0 tutto bene, 4 spegnimento imminente; vuoto finché l'UPS non indica da dove arriva l'energia",
+        "nl": "Hoe ernstig de stroomsituatie is: 0 in orde, 4 uitschakeling op handen; leeg zolang de UPS niet meldt waar de stroom vandaan komt",
+        "pl": "Jak poważna jest sytuacja zasilania: 0 w porządku, 4 wyłączenie nieuchronne; puste, dopóki UPS nie poda, skąd pochodzi zasilanie",
+        "pt": "Gravidade da situação de energia: 0 tudo bem, 4 desligamento iminente; vazio enquanto o UPS não indicar de onde vem a energia",
+        "ru": "Насколько серьёзна ситуация с питанием: 0 — всё в порядке, 4 — отключение неизбежно; пусто, пока ИБП не сообщает, откуда берётся питание",
+        "uk": "Наскільки серйозна ситуація з живленням: 0 — усе гаразд, 4 — вимкнення неминуче; порожньо, поки ДБЖ не повідомляє, звідки надходить живлення",
+        "zh-cn": "供电情况的严重程度：0 正常，4 即将关机；UPS 未报告电源来源时为空"
       },
       "states": {
         "0": "OK",
@@ -11564,7 +11792,8 @@
       },
       "statusStates": {
         "onlineId": "nut2.0.ups-single-phase.info.reachable"
-      }
+      },
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSI0IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik0yMCA2IGgyNCBhNCA0IDAgMCAxIDQgNCB2NDQgYTQgNCAwIDAgMSAtNCA0IGgtMjQgYTQgNCAwIDAgMSAtNCAtNCB2LTQ0IGE0IDQgMCAwIDEgNCAtNCB6Ii8+CiAgPHBhdGggZD0iTTM1IDE1IEwyNiAzMyBoMTEgbC05IDE2Ii8+Cjwvc3ZnPgo="
     },
     "native": {},
     "_id": "nut2.0.ups-single-phase"
@@ -11756,9 +11985,8 @@
   "nut2.0.ups-single-phase.battery.charge-approx": {
     "type": "state",
     "common": {
-      "type": "number",
-      "role": "value",
-      "unit": "%",
+      "type": "string",
+      "role": "text",
       "read": true,
       "write": false,
       "name": {
@@ -12103,8 +12331,8 @@
   "nut2.0.ups-single-phase.battery.date-maintenance": {
     "type": "state",
     "common": {
-      "type": "number",
-      "role": "value",
+      "type": "string",
+      "role": "text",
       "read": true,
       "write": false,
       "name": {
@@ -13352,6 +13580,43 @@
     "native": {},
     "_id": "nut2.0.ups-single-phase.commands.driver-private-cmd"
   },
+  "nut2.0.ups-single-phase.commands.execute": {
+    "type": "state",
+    "common": {
+      "type": "string",
+      "role": "text",
+      "read": true,
+      "write": true,
+      "name": {
+        "de": "Befehl mit Parameter ausführen",
+        "en": "Run command with parameter",
+        "es": "Ejecutar comando con parámetro",
+        "fr": "Exécuter une commande avec paramètre",
+        "it": "Esegui comando con parametro",
+        "nl": "Opdracht met parameter uitvoeren",
+        "pl": "Wykonaj polecenie z parametrem",
+        "pt": "Executar comando com parâmetro",
+        "ru": "Выполнить команду с параметром",
+        "uk": "Виконати команду з параметром",
+        "zh-cn": "执行带参数的命令"
+      },
+      "desc": {
+        "de": "Einen Befehl der USV und bei Bedarf seinen Wert schreiben, z. B. load.off.delay 120 — dieselbe Form wie bei upscmd",
+        "en": "Write a command the UPS offers and, if needed, its value, e.g. load.off.delay 120 — the same form upscmd takes",
+        "es": "Escribe un comando que ofrezca el SAI y, si hace falta, su valor, p. ej. load.off.delay 120 — la misma forma que acepta upscmd",
+        "fr": "Écrivez une commande proposée par l'onduleur et, si besoin, sa valeur, p. ex. load.off.delay 120 — la même forme que pour upscmd",
+        "it": "Scrivi un comando offerto dall'UPS e, se serve, il suo valore, ad es. load.off.delay 120 — la stessa forma di upscmd",
+        "nl": "Schrijf een opdracht die de UPS aanbiedt en zo nodig de waarde, bijv. load.off.delay 120 — dezelfde vorm als bij upscmd",
+        "pl": "Wpisz polecenie oferowane przez UPS i w razie potrzeby jego wartość, np. load.off.delay 120 — w tej samej formie co w upscmd",
+        "pt": "Escreva um comando oferecido pelo UPS e, se necessário, o seu valor, p. ex. load.off.delay 120 — a mesma forma que o upscmd aceita",
+        "ru": "Запишите команду, которую предлагает ИБП, и при необходимости её значение, например load.off.delay 120 — в той же форме, что и для upscmd",
+        "uk": "Запишіть команду, яку пропонує ДБЖ, і за потреби її значення, наприклад load.off.delay 120 — у тій самій формі, що й для upscmd",
+        "zh-cn": "写入 UPS 提供的命令，必要时附上其值，例如 load.off.delay 120 — 与 upscmd 的格式相同"
+      }
+    },
+    "native": {},
+    "_id": "nut2.0.ups-single-phase.commands.execute"
+  },
   "nut2.0.ups-single-phase.commands.load-off": {
     "type": "state",
     "common": {
@@ -14217,30 +14482,17 @@
       "read": true,
       "write": false,
       "name": {
-        "de": "Kritischer Höchststrom",
-        "en": "Critical high current",
-        "es": "Corriente alta crítica",
-        "fr": "Courant haut critique",
-        "it": "Corrente alta critica",
-        "nl": "Kritisch hoge stroom",
-        "pl": "Krytyczny prąd górny",
-        "pt": "Corrente alta crítica",
-        "ru": "Критически высокий ток",
-        "uk": "Критично високий струм",
-        "zh-cn": "电流上限（严重）"
-      },
-      "desc": {
-        "de": "Obere kritische Grenze der Strom — darüber meldet das Gerät eine Störung",
-        "en": "Upper critical limit for the current — above it the device reports a fault",
-        "es": "Límite crítico superior de la corriente — por encima el dispositivo indica un fallo",
-        "fr": "Limite critique haute de la courant — au-delà, l'appareil signale un défaut",
-        "it": "Limite critico superiore della corrente — oltre, il dispositivo segnala un guasto",
-        "nl": "Bovenste kritische grens voor de stroom — daarboven meldt het apparaat een storing",
-        "pl": "Górna granica krytyczna prądu — powyżej urządzenie zgłasza usterkę",
-        "pt": "Limite crítico superior da corrente — acima disso o dispositivo indica falha",
-        "ru": "Верхний критический предел тока — выше устройство сообщает о неисправности",
-        "uk": "Верхня критична межа струму — вище пристрій повідомляє про несправність",
-        "zh-cn": "电流上临界限——超过后设备报告故障"
+        "en": "High critical",
+        "de": "High critical",
+        "ru": "High critical",
+        "pt": "High critical",
+        "nl": "High critical",
+        "fr": "High critical",
+        "it": "High critical",
+        "es": "High critical",
+        "pl": "High critical",
+        "uk": "High critical",
+        "zh-cn": "High critical"
       }
     },
     "native": {},
@@ -14255,30 +14507,17 @@
       "read": true,
       "write": false,
       "name": {
-        "de": "Warnschwelle hoher Strom",
-        "en": "Warning high current",
-        "es": "Corriente alta de advertencia",
-        "fr": "Courant haut d'avertissement",
-        "it": "Corrente alta di avviso",
-        "nl": "Waarschuwing hoge stroom",
-        "pl": "Ostrzegawczy prąd górny",
-        "pt": "Corrente alta de aviso",
-        "ru": "Предупреждение о высоком токе",
-        "uk": "Попередження про високий струм",
-        "zh-cn": "电流上限（警告）"
-      },
-      "desc": {
-        "de": "Obere Warngrenze der Strom — darüber warnt das Gerät",
-        "en": "Upper warning limit for the current — above it the device warns",
-        "es": "Límite de aviso superior de la corriente — por encima el dispositivo avisa",
-        "fr": "Limite d'alerte haute de la courant — au-delà, l'appareil alerte",
-        "it": "Limite di avviso superiore della corrente — oltre, il dispositivo avvisa",
-        "nl": "Bovenste waarschuwingsgrens voor de stroom — daarboven waarschuwt het apparaat",
-        "pl": "Górna granica ostrzegawcza prądu — powyżej urządzenie ostrzega",
-        "pt": "Limite de aviso superior da corrente — acima disso o dispositivo avisa",
-        "ru": "Верхний порог предупреждения тока — выше устройство предупреждает",
-        "uk": "Верхня межа попередження струму — вище пристрій попереджає",
-        "zh-cn": "电流上警告限——超过后设备发出警告"
+        "en": "High warning",
+        "de": "High warning",
+        "ru": "High warning",
+        "pt": "High warning",
+        "nl": "High warning",
+        "fr": "High warning",
+        "it": "High warning",
+        "es": "High warning",
+        "pl": "High warning",
+        "uk": "High warning",
+        "zh-cn": "High warning"
       }
     },
     "native": {},
@@ -14293,30 +14532,17 @@
       "read": true,
       "write": false,
       "name": {
-        "de": "Kritischer Mindeststrom",
-        "en": "Critical low current",
-        "es": "Corriente baja crítica",
-        "fr": "Courant bas critique",
-        "it": "Corrente bassa critica",
-        "nl": "Kritisch lage stroom",
-        "pl": "Krytyczny prąd dolny",
-        "pt": "Corrente baixa crítica",
-        "ru": "Критически низкий ток",
-        "uk": "Критично низький струм",
-        "zh-cn": "电流下限（严重）"
-      },
-      "desc": {
-        "de": "Untere kritische Grenze der Strom — darunter meldet das Gerät eine Störung",
-        "en": "Lower critical limit for the current — below it the device reports a fault",
-        "es": "Límite crítico inferior de la corriente — por debajo el dispositivo indica un fallo",
-        "fr": "Limite critique basse de la courant — en dessous, l'appareil signale un défaut",
-        "it": "Limite critico inferiore della corrente — sotto, il dispositivo segnala un guasto",
-        "nl": "Onderste kritische grens voor de stroom — daaronder meldt het apparaat een storing",
-        "pl": "Dolna granica krytyczna prądu — poniżej urządzenie zgłasza usterkę",
-        "pt": "Limite crítico inferior da corrente — abaixo disso o dispositivo indica falha",
-        "ru": "Нижний критический предел тока — ниже устройство сообщает о неисправности",
-        "uk": "Нижня критична межа струму — нижче пристрій повідомляє про несправність",
-        "zh-cn": "电流下临界限——低于此值设备报告故障"
+        "en": "Low critical",
+        "de": "Low critical",
+        "ru": "Low critical",
+        "pt": "Low critical",
+        "nl": "Low critical",
+        "fr": "Low critical",
+        "it": "Low critical",
+        "es": "Low critical",
+        "pl": "Low critical",
+        "uk": "Low critical",
+        "zh-cn": "Low critical"
       }
     },
     "native": {},
@@ -14331,30 +14557,17 @@
       "read": true,
       "write": false,
       "name": {
-        "de": "Warnschwelle niedriger Strom",
-        "en": "Warning low current",
-        "es": "Corriente baja de advertencia",
-        "fr": "Courant bas d'avertissement",
-        "it": "Corrente bassa di avviso",
-        "nl": "Waarschuwing lage stroom",
-        "pl": "Ostrzegawczy prąd dolny",
-        "pt": "Corrente baixa de aviso",
-        "ru": "Предупреждение о низком токе",
-        "uk": "Попередження про низький струм",
-        "zh-cn": "电流下限（警告）"
-      },
-      "desc": {
-        "de": "Untere Warngrenze der Strom — darunter warnt das Gerät",
-        "en": "Lower warning limit for the current — below it the device warns",
-        "es": "Límite de aviso inferior de la corriente — por debajo el dispositivo avisa",
-        "fr": "Limite d'alerte basse de la courant — en dessous, l'appareil alerte",
-        "it": "Limite di avviso inferiore della corrente — sotto, il dispositivo avvisa",
-        "nl": "Onderste waarschuwingsgrens voor de stroom — daaronder waarschuwt het apparaat",
-        "pl": "Dolna granica ostrzegawcza prądu — poniżej urządzenie ostrzega",
-        "pt": "Limite de aviso inferior da corrente — abaixo disso o dispositivo avisa",
-        "ru": "Нижний порог предупреждения тока — ниже устройство предупреждает",
-        "uk": "Нижня межа попередження струму — нижче пристрій попереджає",
-        "zh-cn": "电流下警告限——低于此值设备发出警告"
+        "en": "Low warning",
+        "de": "Low warning",
+        "ru": "Low warning",
+        "pt": "Low warning",
+        "nl": "Low warning",
+        "fr": "Low warning",
+        "it": "Low warning",
+        "es": "Low warning",
+        "pl": "Low warning",
+        "uk": "Low warning",
+        "zh-cn": "Low warning"
       }
     },
     "native": {},
@@ -14369,30 +14582,17 @@
       "read": true,
       "write": false,
       "name": {
-        "de": "Maximaler Strom",
-        "en": "Maximum current",
-        "es": "Corriente máxima",
-        "fr": "Courant maximal",
-        "it": "Corrente massima",
-        "nl": "Maximale stroom",
-        "pl": "Prąd maksymalny",
-        "pt": "Corrente máxima",
-        "ru": "Максимальный ток",
-        "uk": "Максимальний струм",
-        "zh-cn": "最大电流"
-      },
-      "desc": {
-        "de": "Höchste Strom, die das Gerät seit dem letzten Zurücksetzen gesehen hat",
-        "en": "Highest current the device has seen since the last reset",
-        "es": "corriente máxima registrada desde el último reinicio",
-        "fr": "courant la plus élevée depuis la dernière remise à zéro",
-        "it": "corrente massima registrata dall'ultimo azzeramento",
-        "nl": "Hoogste stroom sinds de laatste reset",
-        "pl": "Najwyższa prądu od ostatniego zerowania",
-        "pt": "corrente máxima registada desde a última reposição",
-        "ru": "Наибольшее значение тока с момента последнего сброса",
-        "uk": "Найбільше значення струму від останнього скидання",
-        "zh-cn": "自上次复位以来记录的最高电流"
+        "en": "Maximum",
+        "de": "Maximum",
+        "ru": "Maximum",
+        "pt": "Maximum",
+        "nl": "Maximum",
+        "fr": "Maximum",
+        "it": "Maximum",
+        "es": "Maximum",
+        "pl": "Maximum",
+        "uk": "Maximum",
+        "zh-cn": "Maximum"
       }
     },
     "native": {},
@@ -14407,30 +14607,17 @@
       "read": true,
       "write": false,
       "name": {
-        "de": "Minimaler Strom",
-        "en": "Minimum current",
-        "es": "Corriente mínima",
-        "fr": "Courant minimal",
-        "it": "Corrente minima",
-        "nl": "Minimale stroom",
-        "pl": "Prąd minimalny",
-        "pt": "Corrente mínima",
-        "ru": "Минимальный ток",
-        "uk": "Мінімальний струм",
-        "zh-cn": "最小电流"
-      },
-      "desc": {
-        "de": "Niedrigste Strom, die das Gerät seit dem letzten Zurücksetzen gesehen hat",
-        "en": "Lowest current the device has seen since the last reset",
-        "es": "corriente mínima registrada desde el último reinicio",
-        "fr": "courant la plus basse depuis la dernière remise à zéro",
-        "it": "corrente minima registrata dall'ultimo azzeramento",
-        "nl": "Laagste stroom sinds de laatste reset",
-        "pl": "Najniższa prądu od ostatniego zerowania",
-        "pt": "corrente mínima registada desde a última reposição",
-        "ru": "Наименьшее значение тока с момента последнего сброса",
-        "uk": "Найменше значення струму від останнього скидання",
-        "zh-cn": "自上次复位以来记录的最低电流"
+        "en": "Minimum",
+        "de": "Minimum",
+        "ru": "Minimum",
+        "pt": "Minimum",
+        "nl": "Minimum",
+        "fr": "Minimum",
+        "it": "Minimum",
+        "es": "Minimum",
+        "pl": "Minimum",
+        "uk": "Minimum",
+        "zh-cn": "Minimum"
       }
     },
     "native": {},
@@ -14445,30 +14632,17 @@
       "read": true,
       "write": false,
       "name": {
-        "de": "Spitzenstrom",
-        "en": "Peak current",
-        "es": "Corriente de pico",
-        "fr": "Courant de crête",
-        "it": "Corrente di picco",
-        "nl": "Piekstroom",
-        "pl": "Prąd szczytowy",
-        "pt": "Corrente de pico",
-        "ru": "Пиковый ток",
-        "uk": "Піковий струм",
-        "zh-cn": "峰值电流"
-      },
-      "desc": {
-        "de": "Höchste kurze Spitze der Strom, die das Gerät gemessen hat",
-        "en": "Highest short current peak the device has measured",
-        "es": "Mayor pico breve de corriente medido",
-        "fr": "Pic bref de courant le plus élevé mesuré",
-        "it": "Picco breve di corrente più alto misurato",
-        "nl": "Hoogste korte piek van de stroom die het apparaat heeft gemeten",
-        "pl": "Najwyższy krótki szczyt prądu zmierzony przez urządzenie",
-        "pt": "Maior pico curto de corrente medido",
-        "ru": "Наибольший кратковременный пик тока",
-        "uk": "Найвищий короткий пік струму, який виміряв пристрій",
-        "zh-cn": "设备测得的最高瞬时电流峰值"
+        "en": "Peak",
+        "de": "Peak",
+        "ru": "Peak",
+        "pt": "Peak",
+        "nl": "Peak",
+        "fr": "Peak",
+        "it": "Peak",
+        "es": "Peak",
+        "pl": "Peak",
+        "uk": "Peak",
+        "zh-cn": "Peak"
       }
     },
     "native": {},
@@ -14482,30 +14656,17 @@
       "read": true,
       "write": false,
       "name": {
-        "de": "Stromstatus",
-        "en": "Current status",
-        "es": "Estado de la corriente",
-        "fr": "État du courant",
-        "it": "Stato della corrente",
-        "nl": "Stroomstatus",
-        "pl": "Stan prądu",
-        "pt": "Estado da corrente",
-        "ru": "Состояние тока",
-        "uk": "Стан струму",
-        "zh-cn": "电流状态"
-      },
-      "desc": {
-        "de": "Ob die Strom innerhalb ihrer Grenzen liegt — oder wie weit darüber hinaus",
-        "en": "Whether the current is within its limits, or how far outside",
-        "es": "Si la corriente está dentro de sus límites, o cuánto los excede",
-        "fr": "Si la courant est dans ses limites, ou de combien elle en sort",
-        "it": "Se la corrente è nei limiti, o quanto ne è fuori",
-        "nl": "Of de stroom binnen de grenzen ligt, of hoever daarbuiten",
-        "pl": "Czy prądu mieści się w granicach, a jeśli nie, to jak bardzo",
-        "pt": "Se a corrente está dentro dos limites, ou quão fora está",
-        "ru": "Находится ли тока в пределах допуска и насколько вышла за него",
-        "uk": "Чи перебуває струму в межах, і наскільки вона їх перевищує",
-        "zh-cn": "电流是否在限值范围内，或超出多少"
+        "en": "Status",
+        "de": "Status",
+        "ru": "Status",
+        "pt": "Status",
+        "nl": "Status",
+        "fr": "Status",
+        "it": "Status",
+        "es": "Status",
+        "pl": "Status",
+        "uk": "Status",
+        "zh-cn": "Status"
       },
       "states": {
         "good": "Good",
@@ -14615,8 +14776,8 @@
   "nut2.0.ups-single-phase.device.description": {
     "type": "state",
     "common": {
-      "type": "number",
-      "role": "value",
+      "type": "string",
+      "role": "text",
       "read": true,
       "write": false,
       "name": {
@@ -14663,8 +14824,8 @@
   "nut2.0.ups-single-phase.device.macaddr": {
     "type": "state",
     "common": {
-      "type": "number",
-      "role": "value",
+      "type": "string",
+      "role": "text",
       "read": true,
       "write": false,
       "name": {
@@ -14854,7 +15015,7 @@
     "type": "state",
     "common": {
       "type": "number",
-      "role": "value",
+      "role": "value.interval",
       "unit": "s",
       "read": true,
       "write": false,
@@ -15183,30 +15344,17 @@
       "read": true,
       "write": false,
       "name": {
-        "de": "Nennfrequenz",
-        "en": "Nominal frequency",
-        "es": "Frecuencia nominal",
-        "fr": "Fréquence nominale",
-        "it": "Frequenza nominale",
-        "nl": "Nominale frequentie",
-        "pl": "Częstotliwość znamionowa",
-        "pt": "Frequência nominal",
-        "ru": "Номинальная частота",
-        "uk": "Номінальна частота",
-        "zh-cn": "额定频率"
-      },
-      "desc": {
-        "de": "Nennfrequenz des Netzes — 50 Hz in Europa, 60 Hz in Nordamerika",
-        "en": "Rated mains frequency — 50 Hz in Europe, 60 Hz in North America",
-        "es": "Frecuencia nominal de red — 50 Hz en Europa, 60 Hz en Norteamérica",
-        "fr": "Fréquence nominale du secteur — 50 Hz en Europe, 60 Hz en Amérique du Nord",
-        "it": "Frequenza nominale di rete — 50 Hz in Europa, 60 Hz in Nord America",
-        "nl": "Nominale netfrequentie — 50 Hz in Europa, 60 Hz in Noord-Amerika",
-        "pl": "Znamionowa częstotliwość sieci — 50 Hz w Europie, 60 Hz w Ameryce Północnej",
-        "pt": "Frequência nominal da rede — 50 Hz na Europa, 60 Hz na América do Norte",
-        "ru": "Номинальная частота сети — 50 Гц в Европе, 60 Гц в Северной Америке",
-        "uk": "Номінальна частота мережі — 50 Гц у Європі, 60 Гц у Північній Америці",
-        "zh-cn": "额定市电频率——欧洲 50 Hz，北美 60 Hz"
+        "en": "Nominal",
+        "de": "Nominal",
+        "ru": "Nominal",
+        "pt": "Nominal",
+        "nl": "Nominal",
+        "fr": "Nominal",
+        "it": "Nominal",
+        "es": "Nominal",
+        "pl": "Nominal",
+        "uk": "Nominal",
+        "zh-cn": "Nominal"
       }
     },
     "native": {},
@@ -15604,16 +15752,16 @@
         "zh-cn": "输入电流上限（严重）"
       },
       "desc": {
-        "de": "Obere kritische Grenze der Strom — darüber meldet das Gerät eine Störung",
+        "de": "Obere kritische Grenze des Stroms — darüber meldet das Gerät eine Störung",
         "en": "Upper critical limit for the current — above it the device reports a fault",
-        "es": "Límite crítico superior de la corriente — por encima el dispositivo indica un fallo",
-        "fr": "Limite critique haute de la courant — au-delà, l'appareil signale un défaut",
+        "es": "Límite crítico superior de la corriente — por encima, el dispositivo indica un fallo",
+        "fr": "Limite critique haute du courant — au-delà, l'appareil signale un défaut",
         "it": "Limite critico superiore della corrente — oltre, il dispositivo segnala un guasto",
         "nl": "Bovenste kritische grens voor de stroom — daarboven meldt het apparaat een storing",
-        "pl": "Górna granica krytyczna prądu — powyżej urządzenie zgłasza usterkę",
-        "pt": "Limite crítico superior da corrente — acima disso o dispositivo indica falha",
-        "ru": "Верхний критический предел тока — выше устройство сообщает о неисправности",
-        "uk": "Верхня критична межа струму — вище пристрій повідомляє про несправність",
+        "pl": "Górna granica krytyczna prądu — powyżej niej urządzenie zgłasza usterkę",
+        "pt": "Limite crítico superior da corrente — acima dele o dispositivo indica uma falha",
+        "ru": "Верхний критический предел тока — выше него устройство сообщает о неисправности",
+        "uk": "Верхня критична межа струму — вище неї пристрій повідомляє про несправність",
         "zh-cn": "电流上临界限——超过后设备报告故障"
       }
     },
@@ -15642,16 +15790,16 @@
         "zh-cn": "输入电流上限（警告）"
       },
       "desc": {
-        "de": "Obere Warngrenze der Strom — darüber warnt das Gerät",
+        "de": "Obere Warngrenze des Stroms — darüber warnt das Gerät",
         "en": "Upper warning limit for the current — above it the device warns",
-        "es": "Límite de aviso superior de la corriente — por encima el dispositivo avisa",
-        "fr": "Limite d'alerte haute de la courant — au-delà, l'appareil alerte",
+        "es": "Límite de aviso superior de la corriente — por encima, el dispositivo avisa",
+        "fr": "Limite d'alerte haute du courant — au-delà, l'appareil émet une alerte",
         "it": "Limite di avviso superiore della corrente — oltre, il dispositivo avvisa",
         "nl": "Bovenste waarschuwingsgrens voor de stroom — daarboven waarschuwt het apparaat",
-        "pl": "Górna granica ostrzegawcza prądu — powyżej urządzenie ostrzega",
-        "pt": "Limite de aviso superior da corrente — acima disso o dispositivo avisa",
-        "ru": "Верхний порог предупреждения тока — выше устройство предупреждает",
-        "uk": "Верхня межа попередження струму — вище пристрій попереджає",
+        "pl": "Górna granica ostrzegawcza prądu — powyżej niej urządzenie ostrzega",
+        "pt": "Limite de aviso superior da corrente — acima dele o dispositivo avisa",
+        "ru": "Верхний порог предупреждения по току — выше него устройство предупреждает",
+        "uk": "Верхня межа попередження за струмом — вище неї пристрій попереджає",
         "zh-cn": "电流上警告限——超过后设备发出警告"
       }
     },
@@ -15680,16 +15828,16 @@
         "zh-cn": "输入电流下限（严重）"
       },
       "desc": {
-        "de": "Untere kritische Grenze der Strom — darunter meldet das Gerät eine Störung",
+        "de": "Untere kritische Grenze des Stroms — darunter meldet das Gerät eine Störung",
         "en": "Lower critical limit for the current — below it the device reports a fault",
-        "es": "Límite crítico inferior de la corriente — por debajo el dispositivo indica un fallo",
-        "fr": "Limite critique basse de la courant — en dessous, l'appareil signale un défaut",
+        "es": "Límite crítico inferior de la corriente — por debajo, el dispositivo indica un fallo",
+        "fr": "Limite critique basse du courant — en dessous, l'appareil signale un défaut",
         "it": "Limite critico inferiore della corrente — sotto, il dispositivo segnala un guasto",
         "nl": "Onderste kritische grens voor de stroom — daaronder meldt het apparaat een storing",
-        "pl": "Dolna granica krytyczna prądu — poniżej urządzenie zgłasza usterkę",
-        "pt": "Limite crítico inferior da corrente — abaixo disso o dispositivo indica falha",
-        "ru": "Нижний критический предел тока — ниже устройство сообщает о неисправности",
-        "uk": "Нижня критична межа струму — нижче пристрій повідомляє про несправність",
+        "pl": "Dolna granica krytyczna prądu — poniżej niej urządzenie zgłasza usterkę",
+        "pt": "Limite crítico inferior da corrente — abaixo dele o dispositivo indica uma falha",
+        "ru": "Нижний критический предел тока — ниже него устройство сообщает о неисправности",
+        "uk": "Нижня критична межа струму — нижче неї пристрій повідомляє про несправність",
         "zh-cn": "电流下临界限——低于此值设备报告故障"
       }
     },
@@ -15718,16 +15866,16 @@
         "zh-cn": "输入电流下限（警告）"
       },
       "desc": {
-        "de": "Untere Warngrenze der Strom — darunter warnt das Gerät",
+        "de": "Untere Warngrenze des Stroms — darunter warnt das Gerät",
         "en": "Lower warning limit for the current — below it the device warns",
-        "es": "Límite de aviso inferior de la corriente — por debajo el dispositivo avisa",
-        "fr": "Limite d'alerte basse de la courant — en dessous, l'appareil alerte",
+        "es": "Límite de aviso inferior de la corriente — por debajo, el dispositivo avisa",
+        "fr": "Limite d'alerte basse du courant — en dessous, l'appareil émet une alerte",
         "it": "Limite di avviso inferiore della corrente — sotto, il dispositivo avvisa",
         "nl": "Onderste waarschuwingsgrens voor de stroom — daaronder waarschuwt het apparaat",
-        "pl": "Dolna granica ostrzegawcza prądu — poniżej urządzenie ostrzega",
-        "pt": "Limite de aviso inferior da corrente — abaixo disso o dispositivo avisa",
-        "ru": "Нижний порог предупреждения тока — ниже устройство предупреждает",
-        "uk": "Нижня межа попередження струму — нижче пристрій попереджає",
+        "pl": "Dolna granica ostrzegawcza prądu — poniżej niej urządzenie ostrzega",
+        "pt": "Limite de aviso inferior da corrente — abaixo dele o dispositivo avisa",
+        "ru": "Нижний порог предупреждения по току — ниже него устройство предупреждает",
+        "uk": "Нижня межа попередження за струмом — нижче неї пристрій попереджає",
         "zh-cn": "电流下警告限——低于此值设备发出警告"
       }
     },
@@ -15756,16 +15904,16 @@
         "zh-cn": "输入额定电流"
       },
       "desc": {
-        "de": "Nennwert der Strom, für den das Gerät ausgelegt ist — nicht der aktuelle Messwert",
+        "de": "Nennstrom, für den das Gerät ausgelegt ist — nicht der aktuelle Messwert",
         "en": "Rated current the device is designed for — not the current reading",
-        "es": "corriente nominal de diseño — no la lectura actual",
-        "fr": "courant nominale prévue par la conception — pas la mesure actuelle",
-        "it": "corrente nominale di progetto — non la lettura attuale",
+        "es": "Corriente nominal para la que está diseñado el dispositivo — no la lectura actual",
+        "fr": "Courant nominal pour lequel l'appareil est conçu — pas la mesure actuelle",
+        "it": "Corrente nominale per cui il dispositivo è progettato — non la lettura attuale",
         "nl": "Nominale stroom waarvoor het apparaat is ontworpen — niet de actuele meting",
-        "pl": "Znamionowa prądu, na jaką zaprojektowano urządzenie — nie bieżący pomiar",
-        "pt": "corrente nominal para que o dispositivo foi concebido — não a leitura atual",
-        "ru": "Номинальное значение тока, на которое рассчитано устройство — не текущий замер",
-        "uk": "Номінальне значення струму, на яке розраховано пристрій — не поточний вимір",
+        "pl": "Prąd znamionowy, na który zaprojektowano urządzenie — nie bieżący pomiar",
+        "pt": "Corrente nominal para a qual o dispositivo foi concebido — não a leitura atual",
+        "ru": "Номинальный ток, на который рассчитано устройство, — не текущее измерение",
+        "uk": "Номінальний струм, на який розраховано пристрій, — не поточний вимір",
         "zh-cn": "设备设计的额定电流——非当前读数"
       }
     },
@@ -15793,16 +15941,16 @@
         "zh-cn": "输入电流状态"
       },
       "desc": {
-        "de": "Ob die Strom innerhalb ihrer Grenzen liegt — oder wie weit darüber hinaus",
+        "de": "Ob der Strom innerhalb seiner Grenzen liegt — oder wie weit darüber hinaus",
         "en": "Whether the current is within its limits, or how far outside",
         "es": "Si la corriente está dentro de sus límites, o cuánto los excede",
-        "fr": "Si la courant est dans ses limites, ou de combien elle en sort",
+        "fr": "Si le courant est dans ses limites, ou de combien il en sort",
         "it": "Se la corrente è nei limiti, o quanto ne è fuori",
         "nl": "Of de stroom binnen de grenzen ligt, of hoever daarbuiten",
-        "pl": "Czy prądu mieści się w granicach, a jeśli nie, to jak bardzo",
-        "pt": "Se a corrente está dentro dos limites, ou quão fora está",
-        "ru": "Находится ли тока в пределах допуска и насколько вышла за него",
-        "uk": "Чи перебуває струму в межах, і наскільки вона їх перевищує",
+        "pl": "Czy prąd mieści się w granicach, a jeśli nie, to jak bardzo",
+        "pt": "Se a corrente está dentro dos limites, ou quão fora deles está",
+        "ru": "Находится ли ток в пределах допуска и насколько он за них вышел",
+        "uk": "Чи перебуває струм у межах і наскільки він за них вийшов",
         "zh-cn": "电流是否在限值范围内，或超出多少"
       },
       "states": {
@@ -16100,16 +16248,16 @@
         "zh-cn": "输入额定频率"
       },
       "desc": {
-        "de": "Nennwert der Frequenz, für den das Gerät ausgelegt ist — nicht der aktuelle Messwert",
+        "de": "Nennfrequenz, für die das Gerät ausgelegt ist — nicht der aktuelle Messwert",
         "en": "Rated frequency the device is designed for — not the current reading",
-        "es": "frecuencia nominal de diseño — no la lectura actual",
-        "fr": "fréquence nominale prévue par la conception — pas la mesure actuelle",
-        "it": "frequenza nominale di progetto — non la lettura attuale",
+        "es": "Frecuencia nominal para la que está diseñado el dispositivo — no la lectura actual",
+        "fr": "Fréquence nominale pour laquelle l'appareil est conçu — pas la mesure actuelle",
+        "it": "Frequenza nominale per cui il dispositivo è progettato — non la lettura attuale",
         "nl": "Nominale frequentie waarvoor het apparaat is ontworpen — niet de actuele meting",
-        "pl": "Znamionowa częstotliwości, na jaką zaprojektowano urządzenie — nie bieżący pomiar",
-        "pt": "frequência nominal para que o dispositivo foi concebido — não a leitura atual",
-        "ru": "Номинальное значение частоты, на которое рассчитано устройство — не текущий замер",
-        "uk": "Номінальне значення частоти, на яке розраховано пристрій — не поточний вимір",
+        "pl": "Częstotliwość znamionowa, na którą zaprojektowano urządzenie — nie bieżący pomiar",
+        "pt": "Frequência nominal para a qual o dispositivo foi concebido — não a leitura atual",
+        "ru": "Номинальная частота, на которую рассчитано устройство, — не текущее измерение",
+        "uk": "Номінальна частота, на яку розраховано пристрій, — не поточний вимір",
         "zh-cn": "设备设计的额定频率——非当前读数"
       }
     },
@@ -16143,10 +16291,10 @@
         "fr": "Si la fréquence est dans ses limites, ou de combien elle en sort",
         "it": "Se la frequenza è nei limiti, o quanto ne è fuori",
         "nl": "Of de frequentie binnen de grenzen ligt, of hoever daarbuiten",
-        "pl": "Czy częstotliwości mieści się w granicach, a jeśli nie, to jak bardzo",
-        "pt": "Se a frequência está dentro dos limites, ou quão fora está",
-        "ru": "Находится ли частоты в пределах допуска и насколько вышла за него",
-        "uk": "Чи перебуває частоти в межах, і наскільки вона їх перевищує",
+        "pl": "Czy częstotliwość mieści się w granicach, a jeśli nie, to jak bardzo",
+        "pt": "Se a frequência está dentro dos limites, ou quão fora deles está",
+        "ru": "Находится ли частота в пределах допуска и насколько она за них вышла",
+        "uk": "Чи перебуває частота в межах і наскільки вона за них вийшла",
         "zh-cn": "频率是否在限值范围内，或超出多少"
       },
       "states": {
@@ -16241,7 +16389,7 @@
     "type": "state",
     "common": {
       "type": "number",
-      "role": "value.power",
+      "role": "value",
       "unit": "VA",
       "read": true,
       "write": false,
@@ -16278,8 +16426,8 @@
   "nut2.0.ups-single-phase.input.quality": {
     "type": "state",
     "common": {
-      "type": "number",
-      "role": "value",
+      "type": "string",
+      "role": "text",
       "read": true,
       "write": false,
       "name": {
@@ -16391,8 +16539,8 @@
   "nut2.0.ups-single-phase.input.sensitivity": {
     "type": "state",
     "common": {
-      "type": "number",
-      "role": "value",
+      "type": "string",
+      "role": "text",
       "read": true,
       "write": false,
       "name": {
@@ -16778,7 +16926,7 @@
     "type": "state",
     "common": {
       "type": "number",
-      "role": "value",
+      "role": "value.interval",
       "unit": "s",
       "read": true,
       "write": false,
@@ -17120,7 +17268,7 @@
     "type": "state",
     "common": {
       "type": "number",
-      "role": "level",
+      "role": "level.voltage",
       "unit": "V",
       "read": true,
       "write": true,
@@ -17235,8 +17383,8 @@
   "nut2.0.ups-single-phase.input.transfer-reason": {
     "type": "state",
     "common": {
-      "type": "number",
-      "role": "value",
+      "type": "string",
+      "role": "text",
       "read": true,
       "write": false,
       "name": {
@@ -17444,14 +17592,14 @@
       "desc": {
         "de": "Obere kritische Grenze der Spannung — darüber meldet das Gerät eine Störung",
         "en": "Upper critical limit for the voltage — above it the device reports a fault",
-        "es": "Límite crítico superior de la tensión — por encima el dispositivo indica un fallo",
+        "es": "Límite crítico superior de la tensión — por encima, el dispositivo indica un fallo",
         "fr": "Limite critique haute de la tension — au-delà, l'appareil signale un défaut",
         "it": "Limite critico superiore della tensione — oltre, il dispositivo segnala un guasto",
         "nl": "Bovenste kritische grens voor de spanning — daarboven meldt het apparaat een storing",
-        "pl": "Górna granica krytyczna napięcia — powyżej urządzenie zgłasza usterkę",
-        "pt": "Limite crítico superior da tensão — acima disso o dispositivo indica falha",
-        "ru": "Верхний критический предел напряжения — выше устройство сообщает о неисправности",
-        "uk": "Верхня критична межа напруги — вище пристрій повідомляє про несправність",
+        "pl": "Górna granica krytyczna napięcia — powyżej niej urządzenie zgłasza usterkę",
+        "pt": "Limite crítico superior da tensão — acima dele o dispositivo indica uma falha",
+        "ru": "Верхний критический предел напряжения — выше него устройство сообщает о неисправности",
+        "uk": "Верхня критична межа напруги — вище неї пристрій повідомляє про несправність",
         "zh-cn": "电压上临界限——超过后设备报告故障"
       }
     },
@@ -17482,14 +17630,14 @@
       "desc": {
         "de": "Obere Warngrenze der Spannung — darüber warnt das Gerät",
         "en": "Upper warning limit for the voltage — above it the device warns",
-        "es": "Límite de aviso superior de la tensión — por encima el dispositivo avisa",
-        "fr": "Limite d'alerte haute de la tension — au-delà, l'appareil alerte",
+        "es": "Límite de aviso superior de la tensión — por encima, el dispositivo avisa",
+        "fr": "Limite d'alerte haute de la tension — au-delà, l'appareil émet une alerte",
         "it": "Limite di avviso superiore della tensione — oltre, il dispositivo avvisa",
         "nl": "Bovenste waarschuwingsgrens voor de spanning — daarboven waarschuwt het apparaat",
-        "pl": "Górna granica ostrzegawcza napięcia — powyżej urządzenie ostrzega",
-        "pt": "Limite de aviso superior da tensão — acima disso o dispositivo avisa",
-        "ru": "Верхний порог предупреждения напряжения — выше устройство предупреждает",
-        "uk": "Верхня межа попередження напруги — вище пристрій попереджає",
+        "pl": "Górna granica ostrzegawcza napięcia — powyżej niej urządzenie ostrzega",
+        "pt": "Limite de aviso superior da tensão — acima dele o dispositivo avisa",
+        "ru": "Верхний порог предупреждения по напряжению — выше него устройство предупреждает",
+        "uk": "Верхня межа попередження за напругою — вище неї пристрій попереджає",
         "zh-cn": "电压上警告限——超过后设备发出警告"
       }
     },
@@ -17520,14 +17668,14 @@
       "desc": {
         "de": "Untere kritische Grenze der Spannung — darunter meldet das Gerät eine Störung",
         "en": "Lower critical limit for the voltage — below it the device reports a fault",
-        "es": "Límite crítico inferior de la tensión — por debajo el dispositivo indica un fallo",
+        "es": "Límite crítico inferior de la tensión — por debajo, el dispositivo indica un fallo",
         "fr": "Limite critique basse de la tension — en dessous, l'appareil signale un défaut",
         "it": "Limite critico inferiore della tensione — sotto, il dispositivo segnala un guasto",
         "nl": "Onderste kritische grens voor de spanning — daaronder meldt het apparaat een storing",
-        "pl": "Dolna granica krytyczna napięcia — poniżej urządzenie zgłasza usterkę",
-        "pt": "Limite crítico inferior da tensão — abaixo disso o dispositivo indica falha",
-        "ru": "Нижний критический предел напряжения — ниже устройство сообщает о неисправности",
-        "uk": "Нижня критична межа напруги — нижче пристрій повідомляє про несправність",
+        "pl": "Dolna granica krytyczna napięcia — poniżej niej urządzenie zgłasza usterkę",
+        "pt": "Limite crítico inferior da tensão — abaixo dele o dispositivo indica uma falha",
+        "ru": "Нижний критический предел напряжения — ниже него устройство сообщает о неисправности",
+        "uk": "Нижня критична межа напруги — нижче неї пристрій повідомляє про несправність",
         "zh-cn": "电压下临界限——低于此值设备报告故障"
       }
     },
@@ -17558,14 +17706,14 @@
       "desc": {
         "de": "Untere Warngrenze der Spannung — darunter warnt das Gerät",
         "en": "Lower warning limit for the voltage — below it the device warns",
-        "es": "Límite de aviso inferior de la tensión — por debajo el dispositivo avisa",
-        "fr": "Limite d'alerte basse de la tension — en dessous, l'appareil alerte",
+        "es": "Límite de aviso inferior de la tensión — por debajo, el dispositivo avisa",
+        "fr": "Limite d'alerte basse de la tension — en dessous, l'appareil émet une alerte",
         "it": "Limite di avviso inferiore della tensione — sotto, il dispositivo avvisa",
         "nl": "Onderste waarschuwingsgrens voor de spanning — daaronder waarschuwt het apparaat",
-        "pl": "Dolna granica ostrzegawcza napięcia — poniżej urządzenie ostrzega",
-        "pt": "Limite de aviso inferior da tensão — abaixo disso o dispositivo avisa",
-        "ru": "Нижний порог предупреждения напряжения — ниже устройство предупреждает",
-        "uk": "Нижня межа попередження напруги — нижче пристрій попереджає",
+        "pl": "Dolna granica ostrzegawcza napięcia — poniżej niej urządzenie ostrzega",
+        "pt": "Limite de aviso inferior da tensão — abaixo dele o dispositivo avisa",
+        "ru": "Нижний порог предупреждения по напряжению — ниже него устройство предупреждает",
+        "uk": "Нижня межа попередження за напругою — нижче неї пристрій попереджає",
         "zh-cn": "电压下警告限——低于此值设备发出警告"
       }
     },
@@ -17594,16 +17742,16 @@
         "zh-cn": "最大输入电压"
       },
       "desc": {
-        "de": "Höchste Spannung, die das Gerät seit dem letzten Zurücksetzen gesehen hat",
+        "de": "Höchste Spannung, die das Gerät seit dem letzten Zurücksetzen gemessen hat",
         "en": "Highest voltage the device has seen since the last reset",
-        "es": "tensión máxima registrada desde el último reinicio",
-        "fr": "tension la plus élevée depuis la dernière remise à zéro",
-        "it": "tensione massima registrata dall'ultimo azzeramento",
+        "es": "Tensión máxima registrada desde el último reinicio",
+        "fr": "Tension la plus élevée depuis la dernière remise à zéro",
+        "it": "Tensione massima registrata dall'ultimo azzeramento",
         "nl": "Hoogste spanning sinds de laatste reset",
-        "pl": "Najwyższa napięcia od ostatniego zerowania",
-        "pt": "tensão máxima registada desde a última reposição",
-        "ru": "Наибольшее значение напряжения с момента последнего сброса",
-        "uk": "Найбільше значення напруги від останнього скидання",
+        "pl": "Najwyższe napięcie od ostatniego zerowania",
+        "pt": "Tensão máxima registada desde a última reposição",
+        "ru": "Наибольшее напряжение с момента последнего сброса",
+        "uk": "Найбільша напруга від останнього скидання",
         "zh-cn": "自上次复位以来记录的最高电压"
       }
     },
@@ -17632,16 +17780,16 @@
         "zh-cn": "最小输入电压"
       },
       "desc": {
-        "de": "Niedrigste Spannung, die das Gerät seit dem letzten Zurücksetzen gesehen hat",
+        "de": "Niedrigste Spannung, die das Gerät seit dem letzten Zurücksetzen gemessen hat",
         "en": "Lowest voltage the device has seen since the last reset",
-        "es": "tensión mínima registrada desde el último reinicio",
-        "fr": "tension la plus basse depuis la dernière remise à zéro",
-        "it": "tensione minima registrata dall'ultimo azzeramento",
+        "es": "Tensión mínima registrada desde el último reinicio",
+        "fr": "Tension la plus basse depuis la dernière remise à zéro",
+        "it": "Tensione minima registrata dall'ultimo azzeramento",
         "nl": "Laagste spanning sinds de laatste reset",
-        "pl": "Najniższa napięcia od ostatniego zerowania",
-        "pt": "tensão mínima registada desde a última reposição",
-        "ru": "Наименьшее значение напряжения с момента последнего сброса",
-        "uk": "Найменше значення напруги від останнього скидання",
+        "pl": "Najniższe napięcie od ostatniego zerowania",
+        "pt": "Tensão mínima registada desde a última reposição",
+        "ru": "Наименьшее напряжение с момента последнего сброса",
+        "uk": "Найменша напруга від останнього скидання",
         "zh-cn": "自上次复位以来记录的最低电压"
       }
     },
@@ -17670,16 +17818,16 @@
         "zh-cn": "输入额定电压"
       },
       "desc": {
-        "de": "Nennwert der Spannung, für den das Gerät ausgelegt ist — nicht der aktuelle Messwert",
+        "de": "Nennspannung, für die das Gerät ausgelegt ist — nicht der aktuelle Messwert",
         "en": "Rated voltage the device is designed for — not the current reading",
-        "es": "tensión nominal de diseño — no la lectura actual",
-        "fr": "tension nominale prévue par la conception — pas la mesure actuelle",
-        "it": "tensione nominale di progetto — non la lettura attuale",
+        "es": "Tensión nominal para la que está diseñado el dispositivo — no la lectura actual",
+        "fr": "Tension nominale pour laquelle l'appareil est conçu — pas la mesure actuelle",
+        "it": "Tensione nominale per cui il dispositivo è progettato — non la lettura attuale",
         "nl": "Nominale spanning waarvoor het apparaat is ontworpen — niet de actuele meting",
-        "pl": "Znamionowa napięcia, na jaką zaprojektowano urządzenie — nie bieżący pomiar",
-        "pt": "tensão nominal para que o dispositivo foi concebido — não a leitura atual",
-        "ru": "Номинальное значение напряжения, на которое рассчитано устройство — не текущий замер",
-        "uk": "Номінальне значення напруги, на яке розраховано пристрій — не поточний вимір",
+        "pl": "Napięcie znamionowe, na które zaprojektowano urządzenie — nie bieżący pomiar",
+        "pt": "Tensão nominal para a qual o dispositivo foi concebido — não a leitura atual",
+        "ru": "Номинальное напряжение, на которое рассчитано устройство, — не текущее измерение",
+        "uk": "Номінальна напруга, на яку розраховано пристрій, — не поточний вимір",
         "zh-cn": "设备设计的额定电压——非当前读数"
       }
     },
@@ -17713,10 +17861,10 @@
         "fr": "Si la tension est dans ses limites, ou de combien elle en sort",
         "it": "Se la tensione è nei limiti, o quanto ne è fuori",
         "nl": "Of de spanning binnen de grenzen ligt, of hoever daarbuiten",
-        "pl": "Czy napięcia mieści się w granicach, a jeśli nie, to jak bardzo",
-        "pt": "Se a tensão está dentro dos limites, ou quão fora está",
-        "ru": "Находится ли напряжения в пределах допуска и насколько вышла за него",
-        "uk": "Чи перебуває напруги в межах, і наскільки вона їх перевищує",
+        "pl": "Czy napięcie mieści się w granicach, a jeśli nie, to jak bardzo",
+        "pt": "Se a tensão está dentro dos limites, ou quão fora deles está",
+        "ru": "Находится ли напряжение в пределах допуска и насколько оно за них вышло",
+        "uk": "Чи перебуває напруга в межах і наскільки вона за них вийшла",
         "zh-cn": "电压是否在限值范围内，或超出多少"
       },
       "states": {
@@ -17919,7 +18067,7 @@
     "type": "state",
     "common": {
       "type": "number",
-      "role": "value",
+      "role": "value.interval",
       "unit": "s",
       "read": true,
       "write": false,
@@ -18053,34 +18201,22 @@
     "type": "state",
     "common": {
       "type": "number",
-      "role": "value.power",
+      "role": "value",
+      "unit": "VA",
       "read": true,
       "write": false,
       "name": {
-        "de": "Maximale Scheinleistung",
-        "en": "Maximum apparent power",
-        "es": "Potencia aparente máxima",
-        "fr": "Puissance apparente maximale",
-        "it": "Potenza apparente massima",
-        "nl": "Maximaal schijnbaar vermogen",
-        "pl": "Maksymalna moc pozorna",
-        "pt": "Potência aparente máxima",
-        "ru": "Максимальная полная мощность",
-        "uk": "Максимальна повна потужність",
-        "zh-cn": "最大视在功率"
-      },
-      "desc": {
-        "de": "Höchste Scheinleistung, die das Gerät seit dem letzten Zurücksetzen gesehen hat",
-        "en": "Highest apparent power the device has seen since the last reset",
-        "es": "Potencia aparente máxima desde el último reinicio",
-        "fr": "Puissance apparente maximale depuis la dernière remise à zéro",
-        "it": "Potenza apparente massima dall'ultimo azzeramento",
-        "nl": "Hoogste schijnbaar vermogen sinds de laatste reset",
-        "pl": "Najwyższa moc pozorna od ostatniego zerowania",
-        "pt": "Potência aparente máxima registada desde a última reposição",
-        "ru": "Наибольшая полная мощность с момента последнего сброса",
-        "uk": "Найбільша повна потужність від останнього скидання",
-        "zh-cn": "自上次复位以来的最高视在功率"
+        "en": "Maximum",
+        "de": "Maximum",
+        "ru": "Maximum",
+        "pt": "Maximum",
+        "nl": "Maximum",
+        "fr": "Maximum",
+        "it": "Maximum",
+        "es": "Maximum",
+        "pl": "Maximum",
+        "uk": "Maximum",
+        "zh-cn": "Maximum"
       }
     },
     "native": {},
@@ -18090,35 +18226,22 @@
     "type": "state",
     "common": {
       "type": "number",
-      "role": "value.power",
+      "role": "value",
       "unit": "%",
       "read": true,
       "write": false,
       "name": {
-        "de": "Maximale Scheinleistung in Prozent",
-        "en": "Maximum apparent power share",
-        "es": "Porcentaje máximo de potencia aparente",
-        "fr": "Pourcentage maximal de puissance apparente",
-        "it": "Percentuale massima di potenza apparente",
-        "nl": "Maximaal schijnbaar vermogen in procent",
-        "pl": "Maksymalna moc pozorna w procentach",
-        "pt": "Percentagem máxima de potência aparente",
-        "ru": "Максимальная полная мощность в процентах",
-        "uk": "Максимальна повна потужність у відсотках",
-        "zh-cn": "最大视在功率占比"
-      },
-      "desc": {
-        "de": "Höchste Scheinleistung seit dem letzten Zurücksetzen, als Anteil der Nennleistung",
-        "en": "Highest apparent power since the last reset, as a share of the rating",
-        "es": "Potencia aparente máxima desde el último reinicio, en porcentaje del nominal",
-        "fr": "Puissance apparente maximale depuis la remise à zéro, en part du nominal",
-        "it": "Potenza apparente massima dall'ultimo azzeramento, come quota del nominale",
-        "nl": "Hoogste schijnbaar vermogen sinds de laatste reset, als aandeel van het nominale",
-        "pl": "Najwyższa moc pozorna od ostatniego zerowania jako udział mocy znamionowej",
-        "pt": "Potência aparente máxima desde a última reposição, em percentagem do nominal",
-        "ru": "Наибольшая полная мощность с последнего сброса в долях от номинала",
-        "uk": "Найбільша повна потужність від останнього скидання як частка номіналу",
-        "zh-cn": "自上次复位以来最高视在功率占额定值的比例"
+        "en": "Maximum percent",
+        "de": "Maximum percent",
+        "ru": "Maximum percent",
+        "pt": "Maximum percent",
+        "nl": "Maximum percent",
+        "fr": "Maximum percent",
+        "it": "Maximum percent",
+        "es": "Maximum percent",
+        "pl": "Maximum percent",
+        "uk": "Maximum percent",
+        "zh-cn": "Maximum percent"
       }
     },
     "native": {},
@@ -18128,34 +18251,22 @@
     "type": "state",
     "common": {
       "type": "number",
-      "role": "value.power",
+      "role": "value",
+      "unit": "VA",
       "read": true,
       "write": false,
       "name": {
-        "de": "Minimale Scheinleistung",
-        "en": "Minimum apparent power",
-        "es": "Potencia aparente mínima",
-        "fr": "Puissance apparente minimale",
-        "it": "Potenza apparente minima",
-        "nl": "Minimaal schijnbaar vermogen",
-        "pl": "Minimalna moc pozorna",
-        "pt": "Potência aparente mínima",
-        "ru": "Минимальная полная мощность",
-        "uk": "Мінімальна повна потужність",
-        "zh-cn": "最小视在功率"
-      },
-      "desc": {
-        "de": "Niedrigste Scheinleistung, die das Gerät seit dem letzten Zurücksetzen gesehen hat",
-        "en": "Lowest apparent power the device has seen since the last reset",
-        "es": "Potencia aparente mínima desde el último reinicio",
-        "fr": "Puissance apparente minimale depuis la dernière remise à zéro",
-        "it": "Potenza apparente minima dall'ultimo azzeramento",
-        "nl": "Laagste schijnbaar vermogen sinds de laatste reset",
-        "pl": "Najniższa moc pozorna od ostatniego zerowania",
-        "pt": "Potência aparente mínima registada desde a última reposição",
-        "ru": "Наименьшая полная мощность с момента последнего сброса",
-        "uk": "Найменша повна потужність від останнього скидання",
-        "zh-cn": "自上次复位以来的最低视在功率"
+        "en": "Minimum",
+        "de": "Minimum",
+        "ru": "Minimum",
+        "pt": "Minimum",
+        "nl": "Minimum",
+        "fr": "Minimum",
+        "it": "Minimum",
+        "es": "Minimum",
+        "pl": "Minimum",
+        "uk": "Minimum",
+        "zh-cn": "Minimum"
       }
     },
     "native": {},
@@ -18165,35 +18276,22 @@
     "type": "state",
     "common": {
       "type": "number",
-      "role": "value.power",
+      "role": "value",
       "unit": "%",
       "read": true,
       "write": false,
       "name": {
-        "de": "Minimale Scheinleistung in Prozent",
-        "en": "Minimum apparent power share",
-        "es": "Porcentaje mínimo de potencia aparente",
-        "fr": "Pourcentage minimal de puissance apparente",
-        "it": "Percentuale minima di potenza apparente",
-        "nl": "Minimaal schijnbaar vermogen in procent",
-        "pl": "Minimalna moc pozorna w procentach",
-        "pt": "Percentagem mínima de potência aparente",
-        "ru": "Минимальная полная мощность в процентах",
-        "uk": "Мінімальна повна потужність у відсотках",
-        "zh-cn": "最小视在功率占比"
-      },
-      "desc": {
-        "de": "Niedrigste Scheinleistung seit dem letzten Zurücksetzen, als Anteil der Nennleistung",
-        "en": "Lowest apparent power since the last reset, as a share of the rating",
-        "es": "Potencia aparente mínima desde el último reinicio, en porcentaje del nominal",
-        "fr": "Puissance apparente minimale depuis la remise à zéro, en part du nominal",
-        "it": "Potenza apparente minima dall'ultimo azzeramento, come quota del nominale",
-        "nl": "Laagste schijnbaar vermogen sinds de laatste reset, als aandeel van het nominale",
-        "pl": "Najniższa moc pozorna od ostatniego zerowania jako udział mocy znamionowej",
-        "pt": "Potência aparente mínima desde a última reposição, em percentagem do nominal",
-        "ru": "Наименьшая полная мощность с последнего сброса в долях от номинала",
-        "uk": "Найменша повна потужність від останнього скидання як частка номіналу",
-        "zh-cn": "自上次复位以来最低视在功率占额定值的比例"
+        "en": "Minimum percent",
+        "de": "Minimum percent",
+        "ru": "Minimum percent",
+        "pt": "Minimum percent",
+        "nl": "Minimum percent",
+        "fr": "Minimum percent",
+        "it": "Minimum percent",
+        "es": "Minimum percent",
+        "pl": "Minimum percent",
+        "uk": "Minimum percent",
+        "zh-cn": "Minimum percent"
       }
     },
     "native": {},
@@ -18203,7 +18301,7 @@
     "type": "state",
     "common": {
       "type": "number",
-      "role": "value.power",
+      "role": "value",
       "unit": "%",
       "read": true,
       "write": false,
@@ -18957,17 +19055,17 @@
         "zh-cn": "严重程度"
       },
       "desc": {
-        "de": "Wie ernst die Stromlage ist: 0 gut, 4 Abschaltung steht bevor",
-        "en": "How serious the power situation is: 0 fine, 4 shutdown imminent",
-        "es": "Gravedad de la situación eléctrica: 0 bien, 4 apagado inminente",
-        "fr": "Gravité de la situation électrique : 0 bon, 4 arrêt imminent",
-        "it": "Quanto è grave la situazione elettrica: 0 bene, 4 spegnimento imminente",
-        "nl": "Hoe ernstig de stroomsituatie is: 0 goed, 4 uitschakeling nabij",
-        "pl": "Jak poważna jest sytuacja zasilania: 0 dobrze, 4 wyłączenie tuż-tuż",
-        "pt": "Quão grave é a situação de energia: 0 bem, 4 desligamento iminente",
-        "ru": "Насколько серьёзна ситуация с питанием: 0 — норма, 4 — скорое отключение",
-        "uk": "Наскільки серйозна ситуація з живленням: 0 — добре, 4 — скоро вимкнення",
-        "zh-cn": "供电状况的严重程度：0 正常，4 即将关机"
+        "de": "Wie ernst die Stromlage ist: 0 gut, 4 Abschaltung steht bevor; leer, solange die USV nicht meldet, woher ihr Strom kommt",
+        "en": "How serious the power situation is: 0 fine, 4 shutdown imminent; empty while the UPS does not say where its power comes from",
+        "es": "Gravedad de la situación eléctrica: 0 bien, 4 apagado inminente; vacío mientras el SAI no indique de dónde viene su energía",
+        "fr": "Gravité de la situation électrique : 0 normal, 4 arrêt imminent ; vide tant que l'onduleur n'indique pas d'où vient son alimentation",
+        "it": "Gravità della situazione di alimentazione: 0 tutto bene, 4 spegnimento imminente; vuoto finché l'UPS non indica da dove arriva l'energia",
+        "nl": "Hoe ernstig de stroomsituatie is: 0 in orde, 4 uitschakeling op handen; leeg zolang de UPS niet meldt waar de stroom vandaan komt",
+        "pl": "Jak poważna jest sytuacja zasilania: 0 w porządku, 4 wyłączenie nieuchronne; puste, dopóki UPS nie poda, skąd pochodzi zasilanie",
+        "pt": "Gravidade da situação de energia: 0 tudo bem, 4 desligamento iminente; vazio enquanto o UPS não indicar de onde vem a energia",
+        "ru": "Насколько серьёзна ситуация с питанием: 0 — всё в порядке, 4 — отключение неизбежно; пусто, пока ИБП не сообщает, откуда берётся питание",
+        "uk": "Наскільки серйозна ситуація з живленням: 0 — усе гаразд, 4 — вимкнення неминуче; порожньо, поки ДБЖ не повідомляє, звідки надходить живлення",
+        "zh-cn": "供电情况的严重程度：0 正常，4 即将关机；UPS 未报告电源来源时为空"
       },
       "states": {
         "0": "OK",
@@ -19206,8 +19304,8 @@
   "nut2.0.ups-single-phase.ups.contacts": {
     "type": "state",
     "common": {
-      "type": "number",
-      "role": "value",
+      "type": "string",
+      "role": "text",
       "read": true,
       "write": false,
       "name": {
@@ -19319,7 +19417,7 @@
     "type": "state",
     "common": {
       "type": "number",
-      "role": "level",
+      "role": "level.timer",
       "unit": "s",
       "read": true,
       "write": true,
@@ -19396,8 +19494,8 @@
   "nut2.0.ups-single-phase.ups.display-language": {
     "type": "state",
     "common": {
-      "type": "number",
-      "role": "value",
+      "type": "string",
+      "role": "text",
       "read": true,
       "write": false,
       "name": {
@@ -19495,8 +19593,8 @@
   "nut2.0.ups-single-phase.ups.firmware-aux": {
     "type": "state",
     "common": {
-      "type": "number",
-      "role": "value",
+      "type": "string",
+      "role": "text",
       "read": true,
       "write": false,
       "name": {
@@ -19680,8 +19778,8 @@
   "nut2.0.ups-single-phase.ups.mode": {
     "type": "state",
     "common": {
-      "type": "number",
-      "role": "value",
+      "type": "string",
+      "role": "text",
       "read": true,
       "write": false,
       "name": {
@@ -19742,7 +19840,7 @@
     "type": "state",
     "common": {
       "type": "number",
-      "role": "value.power",
+      "role": "value",
       "unit": "VA",
       "read": true,
       "write": false,
@@ -19780,7 +19878,7 @@
     "type": "state",
     "common": {
       "type": "number",
-      "role": "value.power",
+      "role": "value",
       "unit": "VA",
       "read": true,
       "write": false,
@@ -20219,7 +20317,7 @@
     "type": "state",
     "common": {
       "type": "number",
-      "role": "value",
+      "role": "value.interval",
       "unit": "s",
       "read": true,
       "write": false,
@@ -20256,8 +20354,8 @@
   "nut2.0.ups-single-phase.ups.test-result": {
     "type": "state",
     "common": {
-      "type": "number",
-      "role": "value",
+      "type": "string",
+      "role": "text",
       "read": true,
       "write": false,
       "name": {
@@ -20293,8 +20391,8 @@
   "nut2.0.ups-single-phase.ups.time": {
     "type": "state",
     "common": {
-      "type": "number",
-      "role": "value",
+      "type": "string",
+      "role": "text",
       "read": true,
       "write": false,
       "name": {
@@ -20585,30 +20683,17 @@
       "read": true,
       "write": false,
       "name": {
-        "de": "Kritische Höchstspannung",
-        "en": "Critical high voltage",
-        "es": "Tensión alta crítica",
-        "fr": "Tension haute critique",
-        "it": "Tensione alta critica",
-        "nl": "Kritisch hoge spanning",
-        "pl": "Krytyczne napięcie górne",
-        "pt": "Tensão alta crítica",
-        "ru": "Критически высокое напряжение",
-        "uk": "Критично висока напруга",
-        "zh-cn": "电压上限（严重）"
-      },
-      "desc": {
-        "de": "Obere kritische Grenze der Spannung — darüber meldet das Gerät eine Störung",
-        "en": "Upper critical limit for the voltage — above it the device reports a fault",
-        "es": "Límite crítico superior de la tensión — por encima el dispositivo indica un fallo",
-        "fr": "Limite critique haute de la tension — au-delà, l'appareil signale un défaut",
-        "it": "Limite critico superiore della tensione — oltre, il dispositivo segnala un guasto",
-        "nl": "Bovenste kritische grens voor de spanning — daarboven meldt het apparaat een storing",
-        "pl": "Górna granica krytyczna napięcia — powyżej urządzenie zgłasza usterkę",
-        "pt": "Limite crítico superior da tensão — acima disso o dispositivo indica falha",
-        "ru": "Верхний критический предел напряжения — выше устройство сообщает о неисправности",
-        "uk": "Верхня критична межа напруги — вище пристрій повідомляє про несправність",
-        "zh-cn": "电压上临界限——超过后设备报告故障"
+        "en": "High critical",
+        "de": "High critical",
+        "ru": "High critical",
+        "pt": "High critical",
+        "nl": "High critical",
+        "fr": "High critical",
+        "it": "High critical",
+        "es": "High critical",
+        "pl": "High critical",
+        "uk": "High critical",
+        "zh-cn": "High critical"
       }
     },
     "native": {},
@@ -20623,30 +20708,17 @@
       "read": true,
       "write": false,
       "name": {
-        "de": "Warnschwelle hohe Spannung",
-        "en": "Warning high voltage",
-        "es": "Tensión alta de advertencia",
-        "fr": "Tension haute d'avertissement",
-        "it": "Tensione alta di avviso",
-        "nl": "Waarschuwing hoge spanning",
-        "pl": "Ostrzegawcze napięcie górne",
-        "pt": "Tensão alta de aviso",
-        "ru": "Предупреждение о высоком напряжении",
-        "uk": "Попередження про високу напругу",
-        "zh-cn": "电压上限（警告）"
-      },
-      "desc": {
-        "de": "Obere Warngrenze der Spannung — darüber warnt das Gerät",
-        "en": "Upper warning limit for the voltage — above it the device warns",
-        "es": "Límite de aviso superior de la tensión — por encima el dispositivo avisa",
-        "fr": "Limite d'alerte haute de la tension — au-delà, l'appareil alerte",
-        "it": "Limite di avviso superiore della tensione — oltre, il dispositivo avvisa",
-        "nl": "Bovenste waarschuwingsgrens voor de spanning — daarboven waarschuwt het apparaat",
-        "pl": "Górna granica ostrzegawcza napięcia — powyżej urządzenie ostrzega",
-        "pt": "Limite de aviso superior da tensão — acima disso o dispositivo avisa",
-        "ru": "Верхний порог предупреждения напряжения — выше устройство предупреждает",
-        "uk": "Верхня межа попередження напруги — вище пристрій попереджає",
-        "zh-cn": "电压上警告限——超过后设备发出警告"
+        "en": "High warning",
+        "de": "High warning",
+        "ru": "High warning",
+        "pt": "High warning",
+        "nl": "High warning",
+        "fr": "High warning",
+        "it": "High warning",
+        "es": "High warning",
+        "pl": "High warning",
+        "uk": "High warning",
+        "zh-cn": "High warning"
       }
     },
     "native": {},
@@ -20661,30 +20733,17 @@
       "read": true,
       "write": false,
       "name": {
-        "de": "Kritische Mindestspannung",
-        "en": "Critical low voltage",
-        "es": "Tensión baja crítica",
-        "fr": "Tension basse critique",
-        "it": "Tensione bassa critica",
-        "nl": "Kritisch lage spanning",
-        "pl": "Krytyczne napięcie dolne",
-        "pt": "Tensão baixa crítica",
-        "ru": "Критически низкое напряжение",
-        "uk": "Критично низька напруга",
-        "zh-cn": "电压下限（严重）"
-      },
-      "desc": {
-        "de": "Untere kritische Grenze der Spannung — darunter meldet das Gerät eine Störung",
-        "en": "Lower critical limit for the voltage — below it the device reports a fault",
-        "es": "Límite crítico inferior de la tensión — por debajo el dispositivo indica un fallo",
-        "fr": "Limite critique basse de la tension — en dessous, l'appareil signale un défaut",
-        "it": "Limite critico inferiore della tensione — sotto, il dispositivo segnala un guasto",
-        "nl": "Onderste kritische grens voor de spanning — daaronder meldt het apparaat een storing",
-        "pl": "Dolna granica krytyczna napięcia — poniżej urządzenie zgłasza usterkę",
-        "pt": "Limite crítico inferior da tensão — abaixo disso o dispositivo indica falha",
-        "ru": "Нижний критический предел напряжения — ниже устройство сообщает о неисправности",
-        "uk": "Нижня критична межа напруги — нижче пристрій повідомляє про несправність",
-        "zh-cn": "电压下临界限——低于此值设备报告故障"
+        "en": "Low critical",
+        "de": "Low critical",
+        "ru": "Low critical",
+        "pt": "Low critical",
+        "nl": "Low critical",
+        "fr": "Low critical",
+        "it": "Low critical",
+        "es": "Low critical",
+        "pl": "Low critical",
+        "uk": "Low critical",
+        "zh-cn": "Low critical"
       }
     },
     "native": {},
@@ -20699,30 +20758,17 @@
       "read": true,
       "write": false,
       "name": {
-        "de": "Warnschwelle niedrige Spannung",
-        "en": "Warning low voltage",
-        "es": "Tensión baja de advertencia",
-        "fr": "Tension basse d'avertissement",
-        "it": "Tensione bassa di avviso",
-        "nl": "Waarschuwing lage spanning",
-        "pl": "Ostrzegawcze napięcie dolne",
-        "pt": "Tensão baixa de aviso",
-        "ru": "Предупреждение о низком напряжении",
-        "uk": "Попередження про низьку напругу",
-        "zh-cn": "电压下限（警告）"
-      },
-      "desc": {
-        "de": "Untere Warngrenze der Spannung — darunter warnt das Gerät",
-        "en": "Lower warning limit for the voltage — below it the device warns",
-        "es": "Límite de aviso inferior de la tensión — por debajo el dispositivo avisa",
-        "fr": "Limite d'alerte basse de la tension — en dessous, l'appareil alerte",
-        "it": "Limite di avviso inferiore della tensione — sotto, il dispositivo avvisa",
-        "nl": "Onderste waarschuwingsgrens voor de spanning — daaronder waarschuwt het apparaat",
-        "pl": "Dolna granica ostrzegawcza napięcia — poniżej urządzenie ostrzega",
-        "pt": "Limite de aviso inferior da tensão — abaixo disso o dispositivo avisa",
-        "ru": "Нижний порог предупреждения напряжения — ниже устройство предупреждает",
-        "uk": "Нижня межа попередження напруги — нижче пристрій попереджає",
-        "zh-cn": "电压下警告限——低于此值设备发出警告"
+        "en": "Low warning",
+        "de": "Low warning",
+        "ru": "Low warning",
+        "pt": "Low warning",
+        "nl": "Low warning",
+        "fr": "Low warning",
+        "it": "Low warning",
+        "es": "Low warning",
+        "pl": "Low warning",
+        "uk": "Low warning",
+        "zh-cn": "Low warning"
       }
     },
     "native": {},
@@ -20737,30 +20783,17 @@
       "read": true,
       "write": false,
       "name": {
-        "de": "Maximale Spannung",
-        "en": "Maximum voltage",
-        "es": "Tensión máxima",
-        "fr": "Tension maximale",
-        "it": "Tensione massima",
-        "nl": "Maximale spanning",
-        "pl": "Napięcie maksymalne",
-        "pt": "Tensão máxima",
-        "ru": "Максимальное напряжение",
-        "uk": "Максимальна напруга",
-        "zh-cn": "最大电压"
-      },
-      "desc": {
-        "de": "Höchste Spannung, die das Gerät seit dem letzten Zurücksetzen gesehen hat",
-        "en": "Highest voltage the device has seen since the last reset",
-        "es": "tensión máxima registrada desde el último reinicio",
-        "fr": "tension la plus élevée depuis la dernière remise à zéro",
-        "it": "tensione massima registrata dall'ultimo azzeramento",
-        "nl": "Hoogste spanning sinds de laatste reset",
-        "pl": "Najwyższa napięcia od ostatniego zerowania",
-        "pt": "tensão máxima registada desde a última reposição",
-        "ru": "Наибольшее значение напряжения с момента последнего сброса",
-        "uk": "Найбільше значення напруги від останнього скидання",
-        "zh-cn": "自上次复位以来记录的最高电压"
+        "en": "Maximum",
+        "de": "Maximum",
+        "ru": "Maximum",
+        "pt": "Maximum",
+        "nl": "Maximum",
+        "fr": "Maximum",
+        "it": "Maximum",
+        "es": "Maximum",
+        "pl": "Maximum",
+        "uk": "Maximum",
+        "zh-cn": "Maximum"
       }
     },
     "native": {},
@@ -20775,30 +20808,17 @@
       "read": true,
       "write": false,
       "name": {
-        "de": "Minimale Spannung",
-        "en": "Minimum voltage",
-        "es": "Tensión mínima",
-        "fr": "Tension minimale",
-        "it": "Tensione minima",
-        "nl": "Minimale spanning",
-        "pl": "Napięcie minimalne",
-        "pt": "Tensão mínima",
-        "ru": "Минимальное напряжение",
-        "uk": "Мінімальна напруга",
-        "zh-cn": "最小电压"
-      },
-      "desc": {
-        "de": "Niedrigste Spannung, die das Gerät seit dem letzten Zurücksetzen gesehen hat",
-        "en": "Lowest voltage the device has seen since the last reset",
-        "es": "tensión mínima registrada desde el último reinicio",
-        "fr": "tension la plus basse depuis la dernière remise à zéro",
-        "it": "tensione minima registrata dall'ultimo azzeramento",
-        "nl": "Laagste spanning sinds de laatste reset",
-        "pl": "Najniższa napięcia od ostatniego zerowania",
-        "pt": "tensão mínima registada desde a última reposição",
-        "ru": "Наименьшее значение напряжения с момента последнего сброса",
-        "uk": "Найменше значення напруги від останнього скидання",
-        "zh-cn": "自上次复位以来记录的最低电压"
+        "en": "Minimum",
+        "de": "Minimum",
+        "ru": "Minimum",
+        "pt": "Minimum",
+        "nl": "Minimum",
+        "fr": "Minimum",
+        "it": "Minimum",
+        "es": "Minimum",
+        "pl": "Minimum",
+        "uk": "Minimum",
+        "zh-cn": "Minimum"
       }
     },
     "native": {},
@@ -20813,30 +20833,17 @@
       "read": true,
       "write": false,
       "name": {
-        "de": "Nennspannung",
-        "en": "Nominal voltage",
-        "es": "Tensión nominal",
-        "fr": "Tension nominale",
-        "it": "Tensione nominale",
-        "nl": "Nominale spanning",
-        "pl": "Napięcie znamionowe",
-        "pt": "Tensão nominal",
-        "ru": "Номинальное напряжение",
-        "uk": "Номінальна напруга",
-        "zh-cn": "额定电压"
-      },
-      "desc": {
-        "de": "Nennwert der Spannung, für den das Gerät ausgelegt ist — nicht der aktuelle Messwert",
-        "en": "Rated voltage the device is designed for — not the current reading",
-        "es": "tensión nominal de diseño — no la lectura actual",
-        "fr": "tension nominale prévue par la conception — pas la mesure actuelle",
-        "it": "tensione nominale di progetto — non la lettura attuale",
-        "nl": "Nominale spanning waarvoor het apparaat is ontworpen — niet de actuele meting",
-        "pl": "Znamionowa napięcia, na jaką zaprojektowano urządzenie — nie bieżący pomiar",
-        "pt": "tensão nominal para que o dispositivo foi concebido — não a leitura atual",
-        "ru": "Номинальное значение напряжения, на которое рассчитано устройство — не текущий замер",
-        "uk": "Номінальне значення напруги, на яке розраховано пристрій — не поточний вимір",
-        "zh-cn": "设备设计的额定电压——非当前读数"
+        "en": "Nominal",
+        "de": "Nominal",
+        "ru": "Nominal",
+        "pt": "Nominal",
+        "nl": "Nominal",
+        "fr": "Nominal",
+        "it": "Nominal",
+        "es": "Nominal",
+        "pl": "Nominal",
+        "uk": "Nominal",
+        "zh-cn": "Nominal"
       }
     },
     "native": {},
@@ -20850,30 +20857,17 @@
       "read": true,
       "write": false,
       "name": {
-        "de": "Spannungsstatus",
-        "en": "Voltage status",
-        "es": "Estado de la tensión",
-        "fr": "État de la tension",
-        "it": "Stato della tensione",
-        "nl": "Spanningsstatus",
-        "pl": "Stan napięcia",
-        "pt": "Estado da tensão",
-        "ru": "Состояние напряжения",
-        "uk": "Стан напруги",
-        "zh-cn": "电压状态"
-      },
-      "desc": {
-        "de": "Ob die Spannung innerhalb ihrer Grenzen liegt — oder wie weit darüber hinaus",
-        "en": "Whether the voltage is within its limits, or how far outside",
-        "es": "Si la tensión está dentro de sus límites, o cuánto los excede",
-        "fr": "Si la tension est dans ses limites, ou de combien elle en sort",
-        "it": "Se la tensione è nei limiti, o quanto ne è fuori",
-        "nl": "Of de spanning binnen de grenzen ligt, of hoever daarbuiten",
-        "pl": "Czy napięcia mieści się w granicach, a jeśli nie, to jak bardzo",
-        "pt": "Se a tensão está dentro dos limites, ou quão fora está",
-        "ru": "Находится ли напряжения в пределах допуска и насколько вышла за него",
-        "uk": "Чи перебуває напруги в межах, і наскільки вона їх перевищує",
-        "zh-cn": "电压是否在限值范围内，或超出多少"
+        "en": "Status",
+        "de": "Status",
+        "ru": "Status",
+        "pt": "Status",
+        "nl": "Status",
+        "fr": "Status",
+        "it": "Status",
+        "es": "Status",
+        "pl": "Status",
+        "uk": "Status",
+        "zh-cn": "Status"
       },
       "states": {
         "good": "Good",
@@ -20904,7 +20898,8 @@
       },
       "statusStates": {
         "onlineId": "nut2.0.ups-three-phase.info.reachable"
-      }
+      },
+      "icon": "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA2NCA2NCIgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiBmaWxsPSJub25lIiBzdHJva2U9ImN1cnJlbnRDb2xvciIgc3Ryb2tlLXdpZHRoPSI0IiBzdHJva2UtbGluZWNhcD0icm91bmQiIHN0cm9rZS1saW5lam9pbj0icm91bmQiPgogIDxwYXRoIGQ9Ik0yMCA2IGgyNCBhNCA0IDAgMCAxIDQgNCB2NDQgYTQgNCAwIDAgMSAtNCA0IGgtMjQgYTQgNCAwIDAgMSAtNCAtNCB2LTQ0IGE0IDQgMCAwIDEgNCAtNCB6Ii8+CiAgPHBhdGggZD0iTTM1IDE1IEwyNiAzMyBoMTEgbC05IDE2Ii8+Cjwvc3ZnPgo="
     },
     "native": {},
     "_id": "nut2.0.ups-three-phase"
@@ -20979,6 +20974,43 @@
     },
     "native": {},
     "_id": "nut2.0.ups-three-phase.commands.bypass-start"
+  },
+  "nut2.0.ups-three-phase.commands.execute": {
+    "type": "state",
+    "common": {
+      "type": "string",
+      "role": "text",
+      "read": true,
+      "write": true,
+      "name": {
+        "de": "Befehl mit Parameter ausführen",
+        "en": "Run command with parameter",
+        "es": "Ejecutar comando con parámetro",
+        "fr": "Exécuter une commande avec paramètre",
+        "it": "Esegui comando con parametro",
+        "nl": "Opdracht met parameter uitvoeren",
+        "pl": "Wykonaj polecenie z parametrem",
+        "pt": "Executar comando com parâmetro",
+        "ru": "Выполнить команду с параметром",
+        "uk": "Виконати команду з параметром",
+        "zh-cn": "执行带参数的命令"
+      },
+      "desc": {
+        "de": "Einen Befehl der USV und bei Bedarf seinen Wert schreiben, z. B. load.off.delay 120 — dieselbe Form wie bei upscmd",
+        "en": "Write a command the UPS offers and, if needed, its value, e.g. load.off.delay 120 — the same form upscmd takes",
+        "es": "Escribe un comando que ofrezca el SAI y, si hace falta, su valor, p. ej. load.off.delay 120 — la misma forma que acepta upscmd",
+        "fr": "Écrivez une commande proposée par l'onduleur et, si besoin, sa valeur, p. ex. load.off.delay 120 — la même forme que pour upscmd",
+        "it": "Scrivi un comando offerto dall'UPS e, se serve, il suo valore, ad es. load.off.delay 120 — la stessa forma di upscmd",
+        "nl": "Schrijf een opdracht die de UPS aanbiedt en zo nodig de waarde, bijv. load.off.delay 120 — dezelfde vorm als bij upscmd",
+        "pl": "Wpisz polecenie oferowane przez UPS i w razie potrzeby jego wartość, np. load.off.delay 120 — w tej samej formie co w upscmd",
+        "pt": "Escreva um comando oferecido pelo UPS e, se necessário, o seu valor, p. ex. load.off.delay 120 — a mesma forma que o upscmd aceita",
+        "ru": "Запишите команду, которую предлагает ИБП, и при необходимости её значение, например load.off.delay 120 — в той же форме, что и для upscmd",
+        "uk": "Запишіть команду, яку пропонує ДБЖ, і за потреби її значення, наприклад load.off.delay 120 — у тій самій формі, що й для upscmd",
+        "zh-cn": "写入 UPS 提供的命令，必要时附上其值，例如 load.off.delay 120 — 与 upscmd 的格式相同"
+      }
+    },
+    "native": {},
+    "_id": "nut2.0.ups-three-phase.commands.execute"
   },
   "nut2.0.ups-three-phase.commands.load-off": {
     "type": "state",
@@ -21440,7 +21472,7 @@
     "type": "state",
     "common": {
       "type": "number",
-      "role": "level",
+      "role": "level.voltage",
       "unit": "V",
       "read": true,
       "write": true,
@@ -21503,10 +21535,10 @@
         "fr": "Si la tension est dans ses limites, ou de combien elle en sort",
         "it": "Se la tensione è nei limiti, o quanto ne è fuori",
         "nl": "Of de spanning binnen de grenzen ligt, of hoever daarbuiten",
-        "pl": "Czy napięcia mieści się w granicach, a jeśli nie, to jak bardzo",
-        "pt": "Se a tensão está dentro dos limites, ou quão fora está",
-        "ru": "Находится ли напряжения в пределах допуска и насколько вышла за него",
-        "uk": "Чи перебуває напруги в межах, і наскільки вона їх перевищує",
+        "pl": "Czy napięcie mieści się w granicach, a jeśli nie, to jak bardzo",
+        "pt": "Se a tensão está dentro dos limites, ou quão fora deles está",
+        "ru": "Находится ли напряжение в пределах допуска и насколько оно за них вышло",
+        "uk": "Чи перебуває напруга в межах і наскільки вона за них вийшла",
         "zh-cn": "电压是否在限值范围内，或超出多少"
       },
       "states": {
@@ -21699,10 +21731,10 @@
         "fr": "Si la tension est dans ses limites, ou de combien elle en sort",
         "it": "Se la tensione è nei limiti, o quanto ne è fuori",
         "nl": "Of de spanning binnen de grenzen ligt, of hoever daarbuiten",
-        "pl": "Czy napięcia mieści się w granicach, a jeśli nie, to jak bardzo",
-        "pt": "Se a tensão está dentro dos limites, ou quão fora está",
-        "ru": "Находится ли напряжения в пределах допуска и насколько вышла за него",
-        "uk": "Чи перебуває напруги в межах, і наскільки вона їх перевищує",
+        "pl": "Czy napięcie mieści się w granicach, a jeśli nie, to jak bardzo",
+        "pt": "Se a tensão está dentro dos limites, ou quão fora deles está",
+        "ru": "Находится ли напряжение в пределах допуска и насколько оно за них вышло",
+        "uk": "Чи перебуває напруга в межах і наскільки вона за них вийшла",
         "zh-cn": "电压是否在限值范围内，或超出多少"
       },
       "states": {
@@ -21895,10 +21927,10 @@
         "fr": "Si la tension est dans ses limites, ou de combien elle en sort",
         "it": "Se la tensione è nei limiti, o quanto ne è fuori",
         "nl": "Of de spanning binnen de grenzen ligt, of hoever daarbuiten",
-        "pl": "Czy napięcia mieści się w granicach, a jeśli nie, to jak bardzo",
-        "pt": "Se a tensão está dentro dos limites, ou quão fora está",
-        "ru": "Находится ли напряжения в пределах допуска и насколько вышла за него",
-        "uk": "Чи перебуває напруги в межах, і наскільки вона їх перевищує",
+        "pl": "Czy napięcie mieści się w granicach, a jeśli nie, to jak bardzo",
+        "pt": "Se a tensão está dentro dos limites, ou quão fora deles está",
+        "ru": "Находится ли напряжение в пределах допуска и насколько оно за них вышло",
+        "uk": "Чи перебуває напруга в межах і наскільки вона за них вийшла",
         "zh-cn": "电压是否在限值范围内，或超出多少"
       },
       "states": {
@@ -22062,7 +22094,7 @@
     "type": "state",
     "common": {
       "type": "number",
-      "role": "value.power",
+      "role": "value",
       "unit": "VA",
       "read": true,
       "write": false,
@@ -22176,7 +22208,7 @@
     "type": "state",
     "common": {
       "type": "number",
-      "role": "value.power",
+      "role": "value",
       "unit": "VA",
       "read": true,
       "write": false,
@@ -22290,7 +22322,7 @@
     "type": "state",
     "common": {
       "type": "number",
-      "role": "value.power",
+      "role": "value",
       "unit": "VA",
       "read": true,
       "write": false,
@@ -23119,17 +23151,17 @@
         "zh-cn": "严重程度"
       },
       "desc": {
-        "de": "Wie ernst die Stromlage ist: 0 gut, 4 Abschaltung steht bevor",
-        "en": "How serious the power situation is: 0 fine, 4 shutdown imminent",
-        "es": "Gravedad de la situación eléctrica: 0 bien, 4 apagado inminente",
-        "fr": "Gravité de la situation électrique : 0 bon, 4 arrêt imminent",
-        "it": "Quanto è grave la situazione elettrica: 0 bene, 4 spegnimento imminente",
-        "nl": "Hoe ernstig de stroomsituatie is: 0 goed, 4 uitschakeling nabij",
-        "pl": "Jak poważna jest sytuacja zasilania: 0 dobrze, 4 wyłączenie tuż-tuż",
-        "pt": "Quão grave é a situação de energia: 0 bem, 4 desligamento iminente",
-        "ru": "Насколько серьёзна ситуация с питанием: 0 — норма, 4 — скорое отключение",
-        "uk": "Наскільки серйозна ситуація з живленням: 0 — добре, 4 — скоро вимкнення",
-        "zh-cn": "供电状况的严重程度：0 正常，4 即将关机"
+        "de": "Wie ernst die Stromlage ist: 0 gut, 4 Abschaltung steht bevor; leer, solange die USV nicht meldet, woher ihr Strom kommt",
+        "en": "How serious the power situation is: 0 fine, 4 shutdown imminent; empty while the UPS does not say where its power comes from",
+        "es": "Gravedad de la situación eléctrica: 0 bien, 4 apagado inminente; vacío mientras el SAI no indique de dónde viene su energía",
+        "fr": "Gravité de la situation électrique : 0 normal, 4 arrêt imminent ; vide tant que l'onduleur n'indique pas d'où vient son alimentation",
+        "it": "Gravità della situazione di alimentazione: 0 tutto bene, 4 spegnimento imminente; vuoto finché l'UPS non indica da dove arriva l'energia",
+        "nl": "Hoe ernstig de stroomsituatie is: 0 in orde, 4 uitschakeling op handen; leeg zolang de UPS niet meldt waar de stroom vandaan komt",
+        "pl": "Jak poważna jest sytuacja zasilania: 0 w porządku, 4 wyłączenie nieuchronne; puste, dopóki UPS nie poda, skąd pochodzi zasilanie",
+        "pt": "Gravidade da situação de energia: 0 tudo bem, 4 desligamento iminente; vazio enquanto o UPS não indicar de onde vem a energia",
+        "ru": "Насколько серьёзна ситуация с питанием: 0 — всё в порядке, 4 — отключение неизбежно; пусто, пока ИБП не сообщает, откуда берётся питание",
+        "uk": "Наскільки серйозна ситуація з живленням: 0 — усе гаразд, 4 — вимкнення неминуче; порожньо, поки ДБЖ не повідомляє, звідки надходить живлення",
+        "zh-cn": "供电情况的严重程度：0 正常，4 即将关机；UPS 未报告电源来源时为空"
       },
       "states": {
         "0": "OK",

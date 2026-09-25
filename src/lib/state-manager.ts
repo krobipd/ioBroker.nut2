@@ -2,6 +2,7 @@ import type * as utils from "@iobroker/adapter-core";
 import { tDesc, tName, tRaw, tText, type I18nKey } from "./i18n";
 import { ALL_FLAG_KEYS, descKeyOf, FLAG_META, getDisplayEntries, parseStatus } from "./status-parser";
 import { errText } from "./coerce";
+import { deviceIcon } from "./device-icons";
 import { moveWithEnums } from "./enum-carry";
 import { detectStates, detectType, isNumericStateWord } from "./type-detector";
 import type { NutCommand, NutVariable } from "./types";
@@ -1301,6 +1302,12 @@ export class StateManager {
    */
   private readonly descriptionLabels = new Map<string, string>();
   /**
+   * `common.icon` each device carries — primed from the stored object in the `pruneObjectTree`
+   * snapshot, updated on every write. Priming from the STORED icon (not from the one this adapter
+   * would derive) is what gives an existing device its pictogram exactly once and a restart none.
+   */
+  private readonly storedIcons = new Map<string, string>();
+  /**
    * What the STORED objects carry, from the namespace snapshot `pruneObjectTree` takes on every
    * discover: the keys of `common.states` and which of `common.min`/`max` are set, per id. This
    * is what decides whether a first contact in this runtime has to remove anything — without a
@@ -1434,7 +1441,9 @@ export class StateManager {
   }
 
   /**
-   * Update device common.name from LIST VAR data when LIST UPS description is unusable.
+   * Bring the device object in line with what LIST VAR says about the device: the pictogram of
+   * its `device.type`, and — when the LIST UPS description is unusable — "manufacturer model" as
+   * its name. ONE write carries whatever changed.
    *
    * The adapter owns the name: the derived one is written whenever it differs from the one
    * this adapter wrote last (memory-guarded, so a steady poll costs no broker round-trip).
@@ -1442,6 +1451,9 @@ export class StateManager {
    * 2026-09-02, not an oversight. `preserve: common.name` would additionally never apply
    * here, since the device object always carries a name (v0.2.5-v0.4.1 lost the fallback
    * that way).
+   *
+   * The icon is decided before (and independently of) the name: a UPS with a usable description
+   * still gets its pictogram. A `device.type` without a pictogram leaves the field untouched.
    *
    * @param upsName UPS identifier
    * @param description UPS description from LIST UPS
@@ -1452,23 +1464,49 @@ export class StateManager {
     description: string,
     variables: Array<{ name: string; value: string }>,
   ): Promise<void> {
-    if (description && description !== NO_DESCRIPTION) {
+    const common: { icon?: string; name?: ioBroker.StringOrTranslated } = {};
+
+    const icon = deviceIcon(variables.find(v => v.name === "device.type")?.value?.trim());
+    if (icon !== undefined && this.storedIcons.get(upsName) !== icon) {
+      common.icon = icon;
+    }
+
+    const name = this.fallbackNameOf(description, variables);
+    // Already applied this exact fallback name → no broker round-trip on steady-state polls.
+    if (name !== undefined && this.fallbackNames.get(upsName) !== name) {
+      this.adapter.log.debug(`updateDeviceName ${upsName}: using fallback '${name}' (mfr+model)`);
+      common.name = tRaw(name);
+    }
+
+    if (common.icon === undefined && common.name === undefined) {
       return;
+    }
+    await this.adapter.extendObject(upsName, { common });
+    if (common.icon !== undefined) {
+      this.storedIcons.set(upsName, common.icon);
+    }
+    if (name !== undefined && common.name !== undefined) {
+      this.fallbackNames.set(upsName, name);
+    }
+  }
+
+  /**
+   * "manufacturer model" from LIST VAR, or undefined while the LIST UPS description is usable or
+   * the device reports neither.
+   *
+   * @param description UPS description from LIST UPS
+   * @param variables Variables from LIST VAR
+   */
+  private fallbackNameOf(description: string, variables: Array<{ name: string; value: string }>): string | undefined {
+    if (description && description !== NO_DESCRIPTION) {
+      return undefined;
     }
     const mfr = variables.find(v => v.name === "device.mfr")?.value?.trim();
     const model = variables.find(v => v.name === "device.model")?.value?.trim();
     if (!mfr && !model) {
-      return;
+      return undefined;
     }
-    const name = [mfr, model].filter(Boolean).join(" ");
-    // Already applied this exact fallback name → no broker round-trip on steady-state polls.
-    if (this.fallbackNames.get(upsName) === name) {
-      return;
-    }
-
-    this.adapter.log.debug(`updateDeviceName ${upsName}: using fallback '${name}' (mfr+model)`);
-    await this.adapter.extendObject(upsName, { common: { name: tRaw(name) } });
-    this.fallbackNames.set(upsName, name);
+    return [mfr, model].filter(Boolean).join(" ");
   }
 
   /**
@@ -1863,7 +1901,11 @@ export class StateManager {
     this.storedStates.clear();
     this.storedBounds.clear();
     this.storedTexts.clear();
+    this.storedIcons.clear();
     for (const [fullId, obj] of Object.entries(adapterObjects)) {
+      if (obj.type === "device" && typeof obj.common?.icon === "string") {
+        this.storedIcons.set(local(fullId), obj.common.icon);
+      }
       const { states, bounds, texts } = shrinkablesOf(obj.common);
       if (states) {
         this.storedStates.set(local(fullId), states);
@@ -2040,6 +2082,7 @@ export class StateManager {
     }
     this.fallbackNames.delete(prefix);
     this.descriptionLabels.delete(prefix);
+    this.storedIcons.delete(prefix);
     this.commandNames.delete(prefix);
   }
 
