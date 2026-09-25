@@ -1435,19 +1435,28 @@ export class NutAdapter extends utils.Adapter {
     await this.poll();
   }
 
+  /**
+   * The adapter's own timers for the connection-test client (N14): they die with the instance.
+   * The client clears handles it never armed (a queued command has no timer yet) — the adapter's
+   * clearTimeout is only called with a real one.
+   */
+  private testClientTimers(): { setTimer: (cb: () => void, ms: number) => unknown; clearTimer: (h: unknown) => void } {
+    return {
+      setTimer: (cb, ms) => this.setTimeout(cb, ms),
+      clearTimer: h => {
+        if (h != null) {
+          this.clearTimeout(h as ioBroker.Timeout);
+        }
+      },
+    };
+  }
+
   private async onMessage(obj: ioBroker.Message): Promise<void> {
     try {
       await dispatchMessage(obj, {
         log: this.nutLogger,
         sendTo: this.sendTo.bind(this),
-        createTestClient: makeTestClientFactory(NutClient, this.nutLogger, {
-          setTimer: (cb, ms) => this.setTimeout(cb, ms),
-          clearTimer: h => {
-            if (h != null) {
-              this.clearTimeout(h as ioBroker.Timeout);
-            }
-          },
-        }),
+        createTestClient: makeTestClientFactory(NutClient, this.nutLogger, this.testClientTimers()),
         onTestClientCreated: client => {
           this.testClients.add(client);
         },

@@ -994,3 +994,19 @@ describe("B6 a countdown printed as -1.0 is idle too", () => {
     expect(r.parsedValue).toBeNull();
   });
 });
+
+describe("needle wave 2026-09-25: shares and version strings", () => {
+  it.each(["output.L1.power.percent", "power.maximum.percent", "power.percent"])(
+    "%s is a plain value in %% — whatever quantity its name mentions",
+    name => {
+      const r = detectType(name, "35", false);
+      expect(r.type).toBe("number");
+      expect(r.unit).toBe("%");
+      expect(r.role).toBe("value");
+    },
+  );
+
+  it("a driver version stays text even when it reads like a number", () => {
+    expect(detectType("driver.version.internal", "0.62", false).type).toBe("string");
+  });
+});

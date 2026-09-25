@@ -2946,6 +2946,8 @@ describe("D9 commands.execute and the command list", () => {
     const sm = new StateManager(adapter);
     await sm.createCommandButtons("ups0", [{ name: "execute" }]);
     expect(objects.get("ups0.commands.execute")?.common.type).toBe("string");
+    // …and it is not registered as a button either: a write there is the text field, never INSTCMD execute.
+    expect(sm.nutNameForState("ups0.commands.execute")).toBeUndefined();
   });
 });
 
@@ -3038,5 +3040,26 @@ describe("D2/D3 the catalog covers the NUT domains, outlets, groups and commands
     expect(en[c("driver-killpower").desc.en].startsWith("⚠")).toBe(true);
     expect(en[c("load-cycle").desc.en].startsWith("⚠")).toBe(true);
     expect(en[c("experimental-ve-direct-get").desc.en]).toContain("commands.execute");
+  });
+});
+
+describe("needle wave 2026-09-25: object-tree rules the suite did not isolate", () => {
+  it("a fresh tree with no predecessors deletes nothing while the device is set up", async () => {
+    const { adapter, deletedIds } = createMockAdapter();
+    const sm = new StateManager(adapter);
+    await sm.ensureUpsDevice("ups0", "Main");
+    expect(deletedIds).toEqual([]);
+  });
+
+  it("a UPS removed and re-added does not try to delete the buttons of its removed predecessor", async () => {
+    const { adapter, deletedIds } = createMockAdapter();
+    const sm = new StateManager(adapter);
+    await sm.ensureUpsDevice("ups0", "Main");
+    await sm.createCommandButtons("ups0", [{ name: "load.off" }, { name: "beeper.mute" }]);
+    await sm.pruneObjectTree(new Set());
+    deletedIds.length = 0;
+    await sm.ensureUpsDevice("ups0", "Main");
+    await sm.createCommandButtons("ups0", [{ name: "beeper.mute" }]);
+    expect(deletedIds).toEqual([]);
   });
 });

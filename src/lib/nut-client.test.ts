@@ -2896,3 +2896,45 @@ describe("E5 protocol edge cases the audit found untested", () => {
     },
   );
 });
+
+describe("needle wave 2026-09-25: parser rules the suite did not isolate", () => {
+  it("a list line with too few tokens is skipped, not read as a variable without a value", async () => {
+    const mock = createMockNutServer(cmd =>
+      cmd.startsWith("LIST VAR")
+        ? ["BEGIN LIST VAR ups0", "VAR ups0 battery.charge", 'VAR ups0 ups.status "OL"', "END LIST VAR ups0"]
+        : "ERR UNKNOWN-COMMAND",
+    );
+    const port = await mock.start();
+    try {
+      const client = new NutClient("127.0.0.1", port);
+      await client.connect();
+      expect(await client.listVar("ups0")).toEqual([{ name: "ups.status", value: "OL" }]);
+      client.destroy();
+    } finally {
+      await mock.stop();
+    }
+  });
+
+  it("after dropping an oversized answer the rest of that chunk is not read as stray lines", async () => {
+    const mock = createMockNutServer(() => null);
+    const port = await mock.start();
+    const debug: string[] = [];
+    const client = new NutClient("127.0.0.1", port, {
+      commandTimeout: 10000,
+      logger: { debug: (m: string) => debug.push(m), info: () => {}, warn: () => {} },
+    });
+    try {
+      await client.connect();
+      const pending = client.listVar("ups0");
+      const line = `VAR ups0 x "${"y".repeat(1000)}"\n`;
+      const big = `BEGIN LIST VAR ups0\n${line.repeat(Math.ceil(MAX_RESPONSE_BYTES / line.length) + 2)}${'VAR ups0 z "1"\n'.repeat(3)}`;
+      // @ts-expect-error feeding the parser directly: one chunk that overflows and carries more lines
+      client.onData(big);
+      await expect(pending).rejects.toBeInstanceOf(NutConnectionError);
+      expect(debug.filter(m => m.includes("(no active command)"))).toEqual([]);
+    } finally {
+      client.destroy();
+      await mock.stop();
+    }
+  });
+});

@@ -376,8 +376,7 @@ function detectUnit(varName: string): string | undefined {
     varName.endsWith(".load") ||
     varName.endsWith(".load.high") ||
     varName.endsWith(".load.energysave") ||
-    varName.endsWith(".efficiency") ||
-    varName.endsWith(".percent")
+    varName.endsWith(".efficiency")
   ) {
     return "%";
   }

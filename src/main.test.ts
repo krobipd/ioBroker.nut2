@@ -2316,3 +2316,129 @@ describe("C23 a failed LIST RW keeps what the last poll knew", () => {
     expect(s.sm.updateVariables).toHaveBeenCalledWith("ups0", expect.anything(), new Set(["ups.delay.shutdown"]));
   });
 });
+
+// ---------------------------------------------------------------------------
+// Rules the needle run of 2026-09-25 found without an isolating test
+// ---------------------------------------------------------------------------
+describe("needle wave 2026-09-25: runtime rules the suite did not isolate", () => {
+  /**
+   * Run every timer the adapter armed and not cleared, once.
+   *
+   * @param stub The adapter stub whose timers run
+   */
+  function runArmedTimers(stub: StubSurface): void {
+    for (const t of stub.timeouts.splice(0)) {
+      if (!t.cleared) {
+        t.cb();
+      }
+    }
+  }
+
+  it("E9: no SET TRACKING without credentials — upsd refuses SET before USERNAME/PASSWORD", async () => {
+    const s = await setupConnected({});
+    expect(s.client.setTracking).not.toHaveBeenCalled();
+  });
+
+  it("E9: a command the driver keeps PENDING ends after the command timeout as 'not confirmed'", async () => {
+    const s = setup({ enableCommands: true, username: "u", password: "p", commandTimeout: 1 });
+    s.client.setTracking.mockResolvedValue(undefined);
+    await s.internal.onReady();
+    await s.internal.onConnected();
+    s.client.instCmd.mockResolvedValue("id-9");
+    s.client.getTracking.mockResolvedValue("PENDING");
+    let now = Date.now();
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    let finished = false;
+    const done = s.internal
+      .onStateChange("nut2.0.ups0.commands.beeper-enable", { val: true, ack: false })
+      .then(() => (finished = true));
+    for (let i = 0; i < 20 && !finished; i++) {
+      await new Promise(resolve => setImmediate(resolve));
+      now += 400;
+      runArmedTimers(s.stub);
+    }
+    expect(finished, "the tracking loop never gave up").toBe(true);
+    await done;
+    expect(
+      logsOf(s.stub, "info").some(m => m.includes("Command sent: beeper.enable") && m.includes("not confirmed")),
+    ).toBe(true);
+  });
+
+  it("C4: a credential check that fails for an unknown reason warns once, then stays on debug", async () => {
+    const s = setup({ username: "u", password: "p" });
+    await s.internal.onReady();
+    s.probe.connect.mockRejectedValue(new Error("something odd"));
+    await s.internal.onConnected();
+    await s.internal.onConnected();
+    expect(logsOf(s.stub, "warn").filter(m => m.includes("Could not verify the credentials"))).toHaveLength(1);
+  });
+
+  it("Audit 23: a command list that times out is a network state — no warning", async () => {
+    const s = setup({ enableCommands: true, username: "u", password: "p" });
+    s.client.listCmd.mockRejectedValue(new NutTimeoutError("LIST CMD ups0"));
+    await s.internal.onReady();
+    await s.internal.onConnected();
+    expect(logsOf(s.stub, "warn").filter(m => m.includes("No command buttons"))).toEqual([]);
+  });
+
+  it("E6: a UPS missing for one poll keeps its objects even when another UPS appears in the same poll", async () => {
+    const s = await setupConnected({}, [
+      { name: "a", description: "" },
+      { name: "b", description: "" },
+    ]);
+    s.client.listUps.mockResolvedValue([
+      { name: "a", description: "" },
+      { name: "c", description: "" },
+    ]);
+    await s.internal.poll();
+    expect([...s.internal.discoveredUps.keys()].sort()).toEqual(["a", "b", "c"]);
+  });
+
+  it("C1: a poll that fails on invalid input warns — it is not an unknown error", async () => {
+    const s = await setupConnected();
+    s.client.listUps.mockRejectedValue(new NutInputError('Invalid NUT UPS name: "a b"'));
+    s.stub.logs.length = 0;
+    await s.internal.poll();
+    expect(logsOf(s.stub, "warn").some(m => m.startsWith("Poll failed"))).toBe(true);
+    expect(logsOf(s.stub, "error").some(m => m.startsWith("Poll failed"))).toBe(false);
+  });
+
+  it("C9: the span of several ranges does not depend on their order", async () => {
+    const s = await setupConnected({ enableSetVar: true });
+    s.client.listRw.mockResolvedValue([{ name: "output.voltage.nominal", value: "230" }]);
+    s.client.listRange.mockResolvedValue([
+      { min: "220", max: "240" },
+      { min: "200", max: "208" },
+    ]);
+    s.internal.enrichedUps.clear();
+    await s.internal.poll();
+    expect(s.sm.enrichStateMetadata).toHaveBeenCalledWith("ups0.output.voltage-nominal", { min: 200, max: 240 });
+  });
+
+  it("N14: the connection-test client clears only timers it really armed, on the adapter's own timers", () => {
+    const s = setup();
+    const timers = (
+      s.adapter as unknown as {
+        testClientTimers: () => { setTimer: (cb: () => void, ms: number) => unknown; clearTimer: (h: unknown) => void };
+      }
+    ).testClientTimers();
+    const handle = timers.setTimer(() => {}, 50);
+    expect(s.stub.timeouts).toHaveLength(1);
+    timers.clearTimer(undefined);
+    timers.clearTimer(null);
+    expect(s.stub.timeouts[0].cleared).toBe(false);
+    timers.clearTimer(handle);
+    expect(s.stub.timeouts[0].cleared).toBe(true);
+  });
+
+  it("C2: nothing is written when the adapter stops while LIST VAR is answered", async () => {
+    const s = await setupConnected();
+    s.sm.updateVariables.mockClear();
+    s.client.listVar.mockImplementation(() => {
+      s.internal.unloaded = true;
+      return Promise.resolve([{ name: "battery.charge", value: "100" }]);
+    });
+    await s.internal.poll();
+    expect(s.sm.updateVariables).not.toHaveBeenCalled();
+  });
+});
