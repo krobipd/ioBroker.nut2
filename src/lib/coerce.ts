@@ -161,7 +161,8 @@ export function coerceCommandTimeoutMs(raw: unknown): number {
  * it reports on.
  *
  * The runtime-only fields (`setTimer`/`clearTimer`/`logger`) stay with the caller: they are not
- * configuration, and the connection test deliberately runs on the plain global timers.
+ * configuration. The connection test gets the adapter's managed timers as well (main.ts
+ * `testClientTimers`).
  *
  * @param config Adapter config (partial — the connection test receives it from the admin message)
  */

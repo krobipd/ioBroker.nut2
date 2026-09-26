@@ -16,7 +16,7 @@ export interface AdapterConfig {
   useTls: boolean;
   /** Reject invalid/self-signed TLS certificates (default false) */
   tlsRejectUnauthorized: boolean;
-  /** Path to a PEM CA certificate file on the ioBroker host — trusted in addition to the system store (only with tlsRejectUnauthorized) */
+  /** Path to a PEM CA certificate file on the ioBroker host — replaces the default trust store for the strict check (only with tlsRejectUnauthorized) */
   tlsCaFile: string;
   /** Per-command timeout in seconds */
   commandTimeout: number;

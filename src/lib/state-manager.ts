@@ -2300,7 +2300,7 @@ export class StateManager {
    * Remove from an EXISTING object what a merge could never take away again — but ONLY when the
    * stored picture really carries something the new one lacks.
    *
-   * `extendObject` merges key by key: a key the new picture does not carry SURVIVES, forever. Two
+   * `extendObject` merges key by key: a key the new picture does not carry SURVIVES, forever. Three
    * kinds of field suffer from that:
    *
    * - `common.states` can SHRINK between adapter versions or driver updates — a dropped entry
@@ -2311,9 +2311,11 @@ export class StateManager {
    *   every value outside the dead bounds. Cleared for a variable that is NOT writable now. A
    *   writable one keeps them for the enrichment, which reconciles them against the live
    *   LIST RANGE in the same poll (re-adding identical bounds costs no write since it compares).
+   * - `common.unit`/`common.desc` come from the adapter's own catalog alone; one it no longer gives
+   *   is removed (design #71).
    *
    * What the stored object carries comes from the namespace snapshot `pruneObjectTree` already
-   * took (`storedStates`/`storedBounds`), so the common case — nothing shrank — costs no read and
+   * took (`storedStates`/`storedBounds`/`storedTexts`), so the common case — nothing shrank — costs no read and
    * no write at all. Measured before this guard existed (2026-09-12): every datapoint with a
    * value list was torn down and rebuilt on EVERY adapter start, 566 single-object reads on top,
    * and the rebuild went through `delObject`, which strikes the id from every room and function

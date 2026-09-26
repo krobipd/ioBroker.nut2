@@ -187,8 +187,8 @@ export function getDisplayEntries(rawStatus: string): DisplayEntry[] {
     .map(token => (DISPLAY_I18N[token] ? { i18nKey: DISPLAY_I18N[token], token } : { token }));
 }
 
-// Severity reflects the POWER-SOURCE state only (OL → trimming → on battery → critical →
-// forced shutdown). Fault flags such as OVER/ALARM/OFF are intentionally NOT folded in —
+// Severity follows the power situation (OL → trim/boost/calibration → on battery, replace battery
+// or bypass → on battery + low battery → forced shutdown). Fault flags such as OVER/ALARM/OFF are intentionally NOT folded in —
 // they are exposed as their own booleans; conflating them here would dilute a single-meaning
 // value. Design decision (krobi 2026-05-31), not an oversight.
 function computeSeverity(tokens: Set<string>): number | null {

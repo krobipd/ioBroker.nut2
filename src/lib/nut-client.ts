@@ -88,8 +88,8 @@ export class NutTimeoutError extends Error {
  * Its own class because the poll classifies what it catches. Before this existed, both cases
  * arrived as a bare `Error` and fell through to `classifyError`'s "UNKNOWN" bucket, which logs at
  * ERROR level — a red line in the ioBroker log every time a NUT server was restarted, while the
- * warn line written for exactly that case ("Cannot reach NUT server — will keep retrying") could
- * never be reached on this path.
+ * line written for exactly that case ("Cannot reach NUT server — will keep retrying", a debug
+ * line since design #70) could never be reached on this path.
  */
 export class NutConnectionError extends Error {
   /**
@@ -216,7 +216,7 @@ export class NutClient {
    * True once connect() resolved (TCP up AND, with TLS, the handshake done). `connected` alone
    * turns true at the TCP level so STARTTLS can be sent; a drop between the two is a failed
    * connect attempt, not a lost connection — the retry loop handles it through connect()'s
-   * rejection, the close handler must not schedule a second reconnect or warn "lost".
+   * rejection, the close handler must not schedule a second reconnect or report the connection as lost.
    */
   private ready = false;
   private destroyed = false;
@@ -941,10 +941,10 @@ export class NutClient {
       // A NUT command is exactly one protocol line — guard the wire against a stray line break in
       // any argument. SET VAR values are already safe on their own: they go out quoted and
       // escapeNut turns every " into \", so the quote cannot be closed, and upsd keeps a newline
-      // inside quotes literal (verified against the bundled parseconf.c `quotecollect`). The one
-      // UNquoted path is USERNAME/PASSWORD — a line break there (a pasted credential with a
-      // trailing newline) would otherwise split into a bogus second command line and desync auth.
-      // Reject before anything reaches the wire; no real NUT argument contains a line break.
+      // inside quotes literal (verified against the bundled parseconf.c `quotecollect`). Every
+      // unquoted argument is already refused by tokenError/credentialError (whitespace includes
+      // line breaks); this check is the last guard for any command string — a line break would
+      // split it into a bogus second command line and desync the connection.
       if (/[\r\n]/.test(command)) {
         reject(new NutInputError("NUT command must not contain line breaks"));
         return;

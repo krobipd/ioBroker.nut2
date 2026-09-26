@@ -180,8 +180,9 @@ export class NutAdapter extends utils.Adapter {
    *    installed 7.2.2). The adapter then never subscribes and the message sits unread.
    *
    * Both are cured by deleting the key. `extendObject` merges and cannot remove anything, so the
-   * key is overwritten with `null` — which does erase it (`node.extend` copies `null`, skips
-   * `undefined`) and takes `isMessageboxSupported` back to the `common.messagebox` branch.
+   * key is overwritten with `null` — js-controller 7.2.2 keeps the key with that value
+   * (`node.extend` copies `null`, skips `undefined`), and `isMessageboxSupported` treats `null` as
+   * absent, which takes it back to the `common.messagebox` branch.
    *
    * Only written while the key is still there: every instance-object change restarts the
    * instance, so doing it unconditionally would be a restart loop.
@@ -212,7 +213,7 @@ export class NutAdapter extends utils.Adapter {
    * (that is what colours the device in the object tree) and the summary. `info.connection` is
    * written by each caller, because only they know whether the connection itself is the reason.
    *
-   * Used by every dead end that is NOT a per-UPS failure: authentication rejected, a fatal TLS
+   * Used by every dead end that is NOT a per-UPS failure: a dropped connection, a fatal TLS
    * problem, and a poll that failed as a whole. Leaving a UPS green next to "0 of 1 reachable"
    * is the contradiction this exists to prevent.
    */
@@ -1084,7 +1085,8 @@ export class NutAdapter extends utils.Adapter {
     };
     for (const rw of rwVars) {
       const stateId = nutVarToStateId(upsId, rw.name);
-      // A writable yes/no var is a boolean state (detectType → boolean only via parseYesNo). Its
+      // A writable yes/no var is a boolean state (detectType → boolean via parseYesNo, or
+      // parseFlagValue for driver.flag.*). Its
       // LIST ENUM yes/no must not become common.states — a string-keyed {yes,no} map is meaningless
       // on a boolean — so skip the enum round-trip entirely for booleans. RANGE stays (harmless: a
       // boolean has none). Multi-value string/number enums are unaffected.
