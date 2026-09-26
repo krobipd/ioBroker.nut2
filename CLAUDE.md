@@ -9,16 +9,17 @@
 - **Version + Changelog:** current version in `io-package.json`; full internal dev history moved to `.claude/dev-history.md` (local, not auto-loaded). User-facing changelog: `README.md` + `io-package.json` news.
 - **GitHub:** https://github.com/krobipd/ioBroker.nut2
 - **npm:** https://www.npmjs.com/package/iobroker.nut2
-- **Repository:** im Latest-Verzeichnis seit 2026-08-13 (PR #6373). Stable ist ein späterer, eigener Schritt.
+- **Repository:** im Latest-Verzeichnis seit 2026-08-13 (PR #6373), im Stable seit 2026-09-22 (Erstaufnahme 0.16.0, PR #6713).
 - **Sentry:** `common.plugins.sentry` mit der gemeinsamen power-dreams-Adresse (ab v0.8.0, wie die übrigen Adapter) — kein eigenes npm-Paket, das Werkzeug kommt über den js-controller. README-Abzeichen + `## Sentry`-Abschnitt sind gate-erzwungen.
 - **Runtime-Deps:** nur `@iobroker/adapter-core` (TCP via Node.js built-in `net`)
-- **Test-Setup:** Tests unter `src/**/*.test.ts` direkt via **vitest**. `test/package.js` + `test/integration.js` bleiben mocha (`@iobroker/testing` ist mocha-only).
+- **Test-Setup:** Tests unter `src/**/*.test.ts` und `test/standards/*.test.ts` (Repo-Standards aus `iobroker-adapter-checks`) direkt via **vitest**. `test/package.js`, `test/integration.js` und `test/inventory.js` bleiben mocha (`@iobroker/testing` ist mocha-only).
 - **`@types/node` an `engines.node`-Min gekoppelt:** `^22.x` weil `engines.node: ">=22"`
 
 ## Architektur
 
 ```
 src/main.ts                     → NutAdapter (Lifecycle, Polling, onStateChange für Commands/SetVar)
+src/main.test.ts                → Adapter-Tests mit Fake-Client
 src/lib/
 ├── nut-client.ts               → NUT TCP Client (persistent, command queue, reconnect, keepalive, TRACKING, auth, redactForLog für Credential-Echo)
 ├── nut-client.test.ts           → Mocked net.Socket tests
@@ -33,14 +34,19 @@ src/lib/
 ├── message-router.ts           → onMessage-Dispatcher (checkConnection + auth test, default-Branch-Contract)
 ├── message-router.test.ts
 ├── i18n.ts                     → tName(key) Wrapper über I18n.getTranslatedObject() (adapter-core I18n-Framework)
+├── i18n.test.ts
+├── inventory-guards.test.ts    → Wächter über test/objects.inventory.json (Frische, Erklärungsstil)
 ├── device-icons.ts             → device.type → admin/icons/*.svg als data:-URI (Flotten-Rezept CLAUDE_PATTERNS.md)
+├── device-icons.test.ts
 ├── enum-carry.ts               → byte-gleiche Kopie des Masters (.consistency-master/src/lib/) — Raum-Übertrag bei Umbenennung
+├── enum-carry.test.ts          → byte-gleiche Kopie des Master-Tests
 ├── catalog-completeness.test.ts → Katalog gegen test/nut-names-2.8.5.json (nut-names.txt + cmdvartab)
 └── types.ts                    → TypeScript Interfaces + NUT-Konstanten
+test/standards/repo-standards.test.ts → Repo-Standards aus iobroker-adapter-checks (vitest)
 admin/i18n/<lang>.json          → Single-Source-of-Truth für UI- + State-Translations (1041 Keys × 11 Sprachen)
 admin/icons/*.svg               → Geräte-Piktogramme (ups, pdu, scd, psu, ats)
 docs/{en,de}/                   → Nutzerdoku im Repo (README/datapoints/faq), verlinkt über io-package.json common.docs
-../scripts/sync-iopackage-from-i18n.py → regeneriert io-package.json:instanceObjects.common.name aus admin/i18n/ (zentral, source: admin-i18n)
+../scripts/sync-iopackage-from-i18n.py → regeneriert io-package.json:instanceObjects common.name + common.desc aus admin/i18n/ (Zuordnung in fleet.json → manifestI18n)
 ```
 
 ## Design-Entscheidungen
@@ -56,14 +62,14 @@ _Jede Entscheidung steht hier als Regel-Satz; Beleg, Messung und Verlauf stehen 
 7. **Network-Interface-Selector** — govee/hassemu-Pattern, wichtig für Multi-Homed-Server
 8. **Dot-Depth-Sortierung** — Variables nach Punkttiefe sortiert, damit Parent-States vor Children existieren (battery.charge vor battery.charge.low)
 9. **Dots→Dashes nach Channel** — `battery.charge.low` → stateId `ups0.battery.charge-low`.
-10. **Auth-Failure = stay alive, yellow, no connections** — bei konfiguriertem username+password und abgelehnter Anmeldung: `client.destroy()` trennt TCP komplett (kein Reconnect, kein Polling, kein Datentransfer), Adapter bleibt am Leben mit `info.connection = false` (gelb in …
+10. ⚠️ **ÜBERHOLT durch #32 (v0.13.0): abgelehnte Zugangsdaten trennen nichts mehr** — historischer Stand: abgelehnte Anmeldung → `client.destroy()`, kein Polling, Instanz gelb; heute einmal warn, das Lesen läuft weiter, `info.connection` bleibt true.
 11. **Per-UPS info.reachable** — `indicator.reachable` Boolean mit `statusStates.onlineId` auf Device-Objekt (beszel-Pattern). v0.4.0 von `info.online` umbenannt — die Namens-Kollision mit dem `status.online`/OL-Flag (am Netz) verwirrte: `reachable` = …
-12. **Legacy-Cleanup** — `cleanupLegacyObjects()` löscht Root-Level-Orphans (alter Adapter) und v0.1.0-Dot-Style-Objekte in einem Pass. **Ein Punkt-Stil-Objekt ist ein UMZUG, kein Wegfall** (v0.12.0): `ups0.battery.charge.low` ist derselbe …
+12. **Legacy-Cleanup** — `pruneObjectTree()` löscht Root-Level-Orphans (alter Adapter) und v0.1.0-Dot-Style-Objekte in einem Pass. **Ein Punkt-Stil-Objekt ist ein UMZUG, kein Wegfall** (v0.12.0): `ups0.battery.charge.low` ist derselbe …
 13. **STARTTLS** — opt-in `useTls` verschlüsselt die Verbindung (Credentials sonst Klartext).
 14. **Unified Retry-Loop im Client** — `start()` besitzt EINE Schleife: retryt den initialen Connect, reconnectet bei Drops, stoppt gelb bei TLS-Config-Fatal (`onFatal`).
 15. **charging/discharging auch aus `battery.charger.status`** — USVen ohne CHRG/DISCHRG-Flags (z.B. Eaton Ellipse ECO, Apollon77-Issues #168/#97) füllen die Booleans über `battery.charger.status` (charging/discharging)
 16. **`driver.flag.*` → read-only Boolean** — NUT-core on/off flag (`enabled`/`disabled`/`0`/`1` via `parseFlagValue`); read-only erzwungen, weil das einzige schreibbare (`allow_killpower`, `ST_FLAG_NUMBER`) ein `1/0`-SET-Token bräuchte, das der Boolean-Schreibpfad …
-17. **on/off + enabled/disabled bleiben Enums (`common.states`), NICHT Boolean** — sie tragen keine Einheit, eine alte wird beim ersten Kontakt entfernt (#44) — `onStateChange` mappt Boolean hart auf `yes`/`no`; ein Boolean-on-the-wire bräuchte per-Variable-Vokabular (`on` statt `yes`) → würde SET VAR für diese Variablen still brechen (die F1-Klasse).
+17. **on/off + enabled/disabled bleiben Enums (`common.states`), NICHT Boolean** — sie tragen keine Einheit, eine alte wird beim ersten Kontakt entfernt (#71) — `onStateChange` mappt Boolean hart auf `yes`/`no`; ein Boolean-on-the-wire bräuchte per-Variable-Vokabular (`on` statt `yes`) → würde SET VAR für diese Variablen still brechen (die F1-Klasse).
 18. **UPS-Namen-Sanitisierung** — `sanitizeUpsName` filtert Objekt-ID-verbotene Zeichen auf `[A-Za-z0-9_-]`; `discoveredUps` ist auf die sanitisierte ID gekeyt, der echte NUT-Name bleibt im Wert und wird für JEDEN Protokoll-Aufruf (LIST …
 19. **Poll als setTimeout-Kette** — `scheduleNextPoll` plant den nächsten Poll erst nach Abschluss des vorigen (kein Overlap statt fixem `setInterval`); `pollTimer` bleibt zwischen Ticks definiert, damit der `armPollTimer`-Idempotenz-Guard + die …
 20. **Credential-Redaction im Log** — `redactForLog` maskiert `USERNAME`/`PASSWORD` im Debug-Command-Echo (beides `protectedNative`/`encryptedNative`); der Wire-Write bleibt unredacted
@@ -74,16 +80,16 @@ _Jede Entscheidung steht hier als Regel-Satz; Beleg, Messung und Verlauf stehen 
 
 24. **`notify`-Trigger — die upsmon-Klingel (Issue #14, FernetMenta)** — NUT hat KEINEN Server-Push (net-protocol.txt 2.8.5 komplett geprüft: jede upsd-Zeile ist Antwort auf einen Befehl; auch TRACKING/FSD sind Poll).
 
-25. **USV-Liste bei JEDEM Poll (v0.11.0)** — `LIST UPS` ist ein billiger Befehl gegen den upsd-RAM-Cache; der Poll holt ihn als erstes und vergleicht die sortierten Namen mit `discoveredUps` (`upsListChanged`).
+25. **USV-Liste bei JEDEM Poll (v0.11.0)** — `LIST UPS` ist ein billiger Befehl gegen den upsd-RAM-Cache; der Poll holt ihn als erstes: eine neue USV löst sofort `discover(upsList)` aus, eine fehlende erst nach der Karenz aus #63 (`missingPolls`).
 26. **`onStateChange` — adapter-eigene Kanäle und Wert-Grenze (v0.11.0)** — `<usv>.info.*` (reachable, notify) und `<usv>.status.*` (geparste Flags) sind KEINE NUT-Variablen; ein Write dorthin (Skript, REST-API) endet mit debug, nicht als `SET VAR`, das upsd mit `VAR-NOT-SUPPORTED` und einer …
 27. **Protokoll-Token-Wächter im Client (v0.11.0)** — `tokenError()` prüft jeden unquoted Wire-Parameter (USV-Name, Variablen-Name, Befehlsname, INSTCMD-Parameter) auf leer / Whitespace / `"` / `\` / `#` / `=` und wirft `NutInputError`, bevor `LIST VAR/RW/CMD/ENUM/RANGE`, `GET VAR/DESC/CMDDESC/TRACKING`, `SET VAR`, `INSTCMD`, `LOGIN` ihn senden.
 28. **`ready` ≠ `connected` im Client (v0.11.0)** — `connected` steht ab TCP-Aufbau, `ready` erst nach vollständigem `connect()` (inkl.
-29. **Bestätigungsbefehle verlangen `OK` (v0.12.0)** — `sendOk()` für `USERNAME`, `PASSWORD`, `LOGIN`, `LOGOUT`, `SET VAR`, `INSTCMD`, `STARTTLS`: gültig ist nur eine Zeile `OK` (auch `OK STARTTLS`, `OK TRACKING <id>`); jede andere Nicht-`ERR`-Zeile ist …
-30. ⚠️ **ÜBERHOLT durch #33 (v0.13.0): das dauerhafte `LOGIN` auf der Betriebsverbindung ist wieder raus.** Historischer Stand v0.12.0/0.12.1 — **Mit Zugangsdaten meldet sich der Adapter IMMER an — EIN `LOGIN` je Verbindung (v0.12.0, krobi 2026-09-02: „dafür sind sie ja da")** — Reihenfolge in `onConnected`: `LIST UPS` → `USERNAME`/`PASSWORD` → `LOGIN <erste USV>`; danach werden ALLE USVs über dieselbe, nun geprüfte Verbindung gelesen und beschrieben (SET/INSTCMD prüfen Name+Passwort je Befehl, nicht `loginups`). Die Zugangsdaten gehören dem Server, nicht der USV — ein zweites `LOGIN` auf derselben Verbindung lehnt upsd ab (`ALREADY-LOGGED-IN`), das war der 0.4.5-Fehler „LOGIN je USV" und die falsche Konsequenz war, LOGIN ganz zu streichen. `authenticated` steht erst nach akzeptiertem LOGIN; ohne USV am Server: warn „nothing to log in to", keine Behauptung. **Voraussetzung im `upsd.users`: der Benutzer braucht `upsmon secondary` (oder `upsmon primary`)** — `actions = SET`/`instcmds` allein erlauben kein LOGIN; upsd antwortet bei falschem Passwort und bei fehlendem upsmon-Recht identisch `ACCESS-DENIED` (`user.c:306/311`), deshalb nennt `authFailureText()` beide Ursachen. Der Verbindungstest fährt exakt dieselbe Kette (+ `LOGOUT`) auf seiner Wegwerf-Verbindung und meldet erst dann „logged in as <user>" (Issue #17). Client-Zustand `loggedIn` (je Verbindung, Reset bei connect/close).
+29. **Bestätigungsbefehle verlangen `OK` (v0.12.0)** — `sendOk()` für `USERNAME`, `PASSWORD`, `LOGIN`, `LOGOUT`, `SET VAR`, `INSTCMD`, `STARTTLS`, `SET TRACKING`: gültig ist nur eine Zeile `OK` (auch `OK STARTTLS`, `OK TRACKING <id>`); jede andere Nicht-`ERR`-Zeile ist …
+30. ⚠️ **ÜBERHOLT durch #32 (v0.13.0): das dauerhafte `LOGIN` auf der Betriebsverbindung ist wieder raus.** Historischer Stand v0.12.0/0.12.1 — **Mit Zugangsdaten meldet sich der Adapter IMMER an — EIN `LOGIN` je Verbindung (v0.12.0, krobi 2026-09-02: „dafür sind sie ja da")** — Reihenfolge in `onConnected`: `LIST UPS` → `USERNAME`/`PASSWORD` → `LOGIN <erste USV>`; danach werden ALLE USVs über dieselbe, nun geprüfte Verbindung gelesen und beschrieben (SET/INSTCMD prüfen Name+Passwort je Befehl, nicht `loginups`). Die Zugangsdaten gehören dem Server, nicht der USV — ein zweites `LOGIN` auf derselben Verbindung lehnt upsd ab (`ALREADY-LOGGED-IN`), das war der 0.4.5-Fehler „LOGIN je USV" und die falsche Konsequenz war, LOGIN ganz zu streichen. `authenticated` steht erst nach akzeptiertem LOGIN; ohne USV am Server: warn „nothing to log in to", keine Behauptung. **Voraussetzung im `upsd.users`: der Benutzer braucht `upsmon secondary` (oder `upsmon primary`)** — `actions = SET`/`instcmds` allein erlauben kein LOGIN; upsd antwortet bei falschem Passwort und bei fehlendem upsmon-Recht identisch `ACCESS-DENIED` (`user.c:306/311`), deshalb nennt `authFailureText()` beide Ursachen. Der Verbindungstest fährt exakt dieselbe Kette (+ `LOGOUT`) auf seiner Wegwerf-Verbindung und meldet erst dann „logged in as <user>" (Issue #17). Client-Zustand `loggedIn` (je Verbindung, Reset bei connect/close).
 31. **Objekt ändern heißt zusammenführen, nie löschen — und der Adapter besitzt Name und Beschreibung (v0.12.0, Shelly-Vorbild, [[reference_iobroker_objekt_aendern_ohne_loeschen]])** — kein `preserve: common.name` mehr (weder am Gerät noch am Datenpunkt, auch nicht beim Anreichern): Name und Beschreibung gehören dem Adapter wie Typ und Rolle, eine Umbenennung im Objektbaum wird beim nächsten Abgleich …
-32. **Zugangsdaten werden GEPRÜFT, aber nicht dauerhaft angemeldet (v0.13.0, krobis Entscheidung 2026-09-02 nach der Praxis-Recherche)** — die Betriebsverbindung sendet nur `USERNAME`/`PASSWORD` (die braucht der Schreibpfad); die PRÜFUNG läuft beim Start auf einer **kurzen zweiten Verbindung**, die nach `LOGIN` sofort zerstört wird (`verifyCredentials`; …
+32. **Zugangsdaten werden GEPRÜFT, aber nicht dauerhaft angemeldet (v0.13.0, krobis Entscheidung 2026-09-02 nach der Praxis-Recherche)** — die Betriebsverbindung sendet nur `USERNAME`/`PASSWORD` (die braucht der Schreibpfad); die PRÜFUNG läuft bei jedem (Wieder-)Verbinden auf einer **kurzen zweiten Verbindung**, die nach `LOGIN` sofort zerstört wird (`verifyCredentials`; …
 33. **Der Transport steht im Ergebnis (v0.12.0)** — Verbindungstest: „Connected via TLS, logged in as …" / „Connected unencrypted — …"; Startzeile: `(logged in as <user>|no credentials, TLS|unencrypted)`.
-34. **Jeder Datenpunkt erklärt sich — `common.desc` als Übersetzungsobjekt (v0.13.0, Flottenstandard 2026-09-02)** — `tDesc(key)` aus `admin/i18n`, 269 Erklärungen in 11 Sprachen: Kanäle, adapter-eigene Datenpunkte, die 19 Statusflags (Schlüssel abgeleitet: `flagOnline` → `descFlagOnline`), 30 Befehle (`cmdBeeperMute` → …
+34. **Jeder Datenpunkt erklärt sich — `common.desc` als Übersetzungsobjekt (v0.13.0, Flottenstandard 2026-09-02)** — `tDesc(key)` aus `admin/i18n`, 269 Erklärungen in 11 Sprachen (v0.13.0; mit 0.17.0 372): Kanäle, adapter-eigene Datenpunkte, die 19 Statusflags (Schlüssel abgeleitet: `flagOnline` → `descFlagOnline`), 30 Befehle (mit 0.17.0 70; `cmdBeeperMute` → …
 35. **User-sichtbare WERTE folgen der Systemsprache (v0.13.0)** — `common.states` ist in ioBroker eine reine Zeichenketten-Abbildung, dort geht kein Übersetzungsobjekt: die Labels werden deshalb beim Schreiben über `tText()` (= `I18n.translate`, Systemsprache) aufgelöst.
 36. **Aufräum-Runde des Vollaudits (v0.13.0)** — (a) `onUnload` verabschiedet sich IMMER mit `shutdown()`; die alte Bindung an „angemeldet" war seit Nr. 32 toter Code.
 
@@ -118,7 +124,7 @@ _Jede Entscheidung steht hier als Regel-Satz; Beleg, Messung und Verlauf stehen 
 
 50. **Zugangsdaten in der Test-Fixture müssen VERSCHLÜSSELT im Instanzobjekt liegen (v0.15.0)** — `username`/`password` stehen in `encryptedNative` (Wurzelebene von `io-package.json`, laut `@iobroker/types` genau dort richtig), also **entschlüsselt js-controller sie beim Start**.
 
-51. **Eine Umbenennung nimmt die Raum-/Gewerkzuordnung mit (2026-09-12)** — die drei Stellen, die einen Datenpunkt umbenennen (`info.online`→`info.reachable`, `status.highEfficiency`→`status.ecoMode`, der v0.1.0-Punkt-Stil), tragen mit `carryUserSettings*` neben `common.custom` jetzt auch die …
+51. **Eine Umbenennung nimmt die Raum-/Gewerkzuordnung mit (2026-09-12)** — die drei Stellen, die einen Datenpunkt umbenennen (`info.online`→`info.reachable`, `status.highEfficiency`→`status.ecoMode`, der v0.1.0-Punkt-Stil), tragen mit `carryRecording` (`common.custom`) und `moveEnumsAndDelete` (#71) jetzt auch die …
 52. **`ensureUpsDevice` schreibt nur bei geänderter Beschreibung (2026-09-12)** — `discover()` ruft es bei jedem (Wieder-)Verbinden; ungeschützt schrieb es den nackten USV-Namen über den mfr+model-Rückfall, und `updateDeviceName` übersprang die Reparatur danach, weil `fallbackNames` sie als erledigt …
 53. **`poll()` weist nie ab — auch nicht aus dem eigenen `catch` (2026-09-12)** — die zwei Schreibvorgänge im `catch` (`info.connection`, `markAllUpsUnreachable`) waren die einzigen ungeschützten `await`s; mit toter States-DB (`ERROR_DB_CLOSED`) wies der Poll aus seinem eigenen Fehlerpfad ab, und …
 54. **Ein fataler TLS-Fehler stoppt auch den Poll (2026-09-12)** — `onConnectFatal` zerstört den Client für immer; landet er auf einem **Reconnect** (CA-Datei verschoben, Zertifikat abgelaufen — `loadTlsCa()` läuft bei jedem Verbinden), war die Timer-Kette längst armiert und lief ewig …
@@ -140,7 +146,7 @@ _#58–#78: Belege im Eintrag „2026-09-25 — Audit 2026-09-25 umgesetzt“ de
 67. **Kein Messwert ist ein Zustand, Müll eine Warnung (E10)** — Zustandswörter (`LoadTooLow`, `NA` …) und Leerwerte in einem Zahlfeld → leerer Zahl-Datenpunkt auf debug; jeder andere Nicht-Zahl-Wert → leer + einmal warn je Variable.
 68. **Zugangsdaten mit `=` oder Steuer-/Nicht-ASCII-Zeichen werden abgewiesen, `#` nur gewarnt (E11)** — upsd und upsmon kürzen an `#` identisch.
 69. **Geräte-Piktogramm je dokumentiertem `device.type` (E12)** — gesetzt in `updateDeviceName` gegen das gespeicherte `common.icon` (Schnappschuss aus `pruneObjectTree`); ein unbekannter Typ lässt das Feld unangetastet.
-70. **Netzwerk-Zustände loggen auf debug (Audit 4/23, Flottenregel 2026-09-22)** — Verbindungsverlust, Wiederverbindung, DATA-STALE, DRIVER-NOT-CONNECTED; andere Codes warn mit Entprellung.
+70. **Netzwerk-Zustände loggen auf debug (Audit 4/23, Flottenregel 2026-09-22)** — Verbindungsverlust, Wiederverbindung, DATA-STALE, DRIVER-NOT-CONNECTED; andere Codes: je USV einmal warn, ein Gesamt-Poll- oder Setup-Fehler einmal error (INVALID-INPUT warn), Wiederholungen debug.
 71. **Umbenennen trägt Raum-/Funktionszuordnung über den Master-Helfer (Audit 5)** — `moveWithEnums` liest die Enums, löscht, schreibt dann; eine wegfallende `unit`/`desc` wird per `removeCommonFields` entfernt (D5).
 72. **Ein gescheitertes `LIST RW` löscht kein Schreib-Wissen (N19)** — das letzte bekannte bleibt; ändert sich die Schreibbarkeit, werden `write`/Rolle nachgezogen.
 73. **Befehlstasten folgen `LIST CMD` in beide Richtungen** — verschwundene Befehle werden gelöscht, eine USV ohne Befehle bekommt keinen Kanal `commands`.
@@ -150,7 +156,7 @@ _#58–#78: Belege im Eintrag „2026-09-25 — Audit 2026-09-25 umgesetzt“ de
 77. **`GET DESC`/`GET CMDDESC` sind keine Datenpunkt-Erklärung** — Flottenregel „`desc` nie aus einem Laufzeitwert“; die Methoden bleiben Protokoll-Primitive.
 78. **SET VAR mit `#` im Wert wird vor der Leitung abgewiesen** — NUT-Treiber melden den Wert unescaped an upsd zurück (`drivers/dstate.c`, SETINFO), upsd verwirft die Zeile samt Tracking; warn + Serverwert zurück.
 
-## Tests (938 unit = 919 Adapter + 19 Repo-Standards aus `iobroker-adapter-checks`; + 61 package = 999) + `npm run test:inventory` (Objekt-Inventar, 1291 Objekte aus 15 Fixtures; Aufstiegs-Suite mit Raum-Zuordnung und Umzugs-Saat)
+## Tests (971 unit = 941 Adapter + 30 Repo-Standards aus `iobroker-adapter-checks`; + 61 package = 1032) + `npm run test:inventory` (Objekt-Inventar, 1291 Objekte aus 15 Fixtures; Aufstiegs-Suite mit Raum-Zuordnung und Umzugs-Saat)
 
 ## Versionshistorie
 

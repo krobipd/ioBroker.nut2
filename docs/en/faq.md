@@ -4,7 +4,7 @@
 
 Both, and they do not contradict each other.
 
-Reading UPS values through NUT needs no login. A login is a separate step that the adapter performs once at startup,
+Reading UPS values through NUT needs no login. A login is a separate step that the adapter performs at every (re)connect,
 on a short extra connection, purely to tell you whether the credentials work. If the server refuses it, monitoring
 continues unaffected — only switching a UPS and writing a variable will be refused.
 
@@ -72,7 +72,7 @@ commands the driver no longer lists are removed.
 ## How do I send a command that needs a value?
 
 Write the command and its value into `commands.execute`, exactly as `upscmd` takes them: `load.off.delay 120` or
-`beeper.enable`. The same rules apply as for the buttons — **Enable commands** on, credentials configured, and the
+`beeper.enable`. The same rules apply as for the buttons — **Enable instant commands** on, credentials configured, and the
 command has to be one the UPS offers. The value is a single word (no spaces, no `#`, `=`, quotes or backslashes).
 
 ## The log says a command was sent but "the driver has not confirmed it (yet)".
@@ -95,18 +95,18 @@ That is intended. The adapter owns name and description of its data points the s
 and a UPS driver update or an adapter update has to be able to correct them. The place for your own naming is
 `0_userdata`, or an alias.
 
-Your recording settings are the explicit exception — they are yours, they are never overwritten, and they even move
-along when the adapter renames one of its own data points.
+Your recording settings and your room and function assignments are the explicit exception — they are yours, they are
+never overwritten, and they even move along when the adapter renames one of its own data points.
 
 ## A UPS vanished from the object tree.
 
 The adapter re-reads the list of UPS devices on every poll. If the NUT server no longer reports a UPS, its objects are
-removed; if it comes back, they are rebuilt. That way a UPS added or removed on the server shows up without restarting
+removed after three polls without it (right away when the adapter starts); if it comes back, they are rebuilt. That way a UPS added or removed on the server shows up without restarting
 the adapter.
 
-## The connection test says "unencrypted" although I enabled TLS.
+## The connection test reports a TLS error although I enabled TLS.
 
-Then the handshake did not happen, and the test reports what actually took place rather than what was configured. The
+Then the handshake did not happen — the adapter never falls back to an unencrypted connection when TLS is on. The
 usual causes: the NUT server was built without TLS support, or it has no `CERTFILE`/`CERTPATH` in `upsd.conf`. In both
 cases `upsd` refuses `STARTTLS` and the test says so.
 
@@ -114,11 +114,11 @@ cases `upsd` refuses `STARTTLS` and the test says so.
 
 That was a defect and is fixed in 0.14.0. The CA file is now only read while **Require valid certificate** is actually
 on — with the strict check off no certificate is verified, so the file has no job. A path left over from an earlier
-attempt is mentioned once in the debug log and otherwise ignored.
+attempt is mentioned in the debug log at every connect and otherwise ignored.
 
 ## Which values can I write?
 
-Whatever your UPS driver reports as writable (`LIST RW`), once **Enable SET VAR** is on. Typical candidates are
+Whatever your UPS driver reports as writable (`LIST RW`), once **Enable writable variables** is on. Typical candidates are
 `ups.delay.shutdown`, `ups.delay.start` and the beeper status. Where the server also reports the allowed values or a
 range, the data point gets a selection list or minimum/maximum, so the admin cannot offer you something the UPS will
 reject.

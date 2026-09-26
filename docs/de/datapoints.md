@@ -4,7 +4,7 @@ Der Adapter bringt keine feste Liste an Datenpunkten mit. Er fragt den NUT-Serve
 und baut den Baum aus der Antwort — zwei verschiedene USV-Modelle ergeben also zwei verschiedene Bäume. Was folgt,
 erklärt die Teile, die immer gleich sind, und wie aus einer NUT-Variablen ein ioBroker-Datenpunkt wird.
 
-Jeder Datenpunkt trägt eine kurze Erklärung in `common.desc`, und Wertelisten, Statustexte und Schweregrade erscheinen
+Jeder Datenpunkt, dessen Name nicht schon alles sagt, trägt eine kurze Erklärung in `common.desc`, und Wertelisten, Statustexte und Schweregrade erscheinen
 in Ihrer ioBroker-Systemsprache.
 
 ## Vom NUT-Namen zur Objekt-ID
@@ -53,8 +53,8 @@ schlecht arbeiten, deshalb zerlegt der Adapter sie:
 | Datenpunkt        | Bedeutung                                                                                                                                                                                                                            |
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `raw`             | Die Originalzeichenkette, unverändert.                                                                                                                                                                                               |
-| `display`         | Dieselbe Information als lesbarer Text in Ihrer Sprache, z. B. „Am Netz, Lädt".                                                                                                                                                      |
-| `severity`        | Eine einzige Zahl, 0–4 (siehe unten).                                                                                                                                                                                                |
+| `display`         | Dieselbe Information als lesbarer Text in Ihrer Sprache, z. B. „Netzbetrieb, Wird geladen".                                                                                                                                          |
+| `severity`        | Eine einzige Zahl, 0–4, oder leer (siehe unten).                                                                                                                                                                                     |
 | 19 Wahrheitswerte | Je einer pro bekanntem Statusflag: `online`, `onBattery`, `lowBattery`, `charging`, `discharging`, `replaceBattery`, `overloaded`, `bypass`, `calibrating`, `forcedShutdown`, `alarm`, `ecoMode`, `testing`, `overheat` und weitere. |
 
 `charging` und `discharging` werden zusätzlich aus `battery.charger.status` gefüllt, weil manche USV-Modelle den
@@ -108,7 +108,7 @@ Textfehler wären brauchbar.
 
 ### `commands`
 
-Je eine Taste pro Befehl, den die USV anbietet — angelegt nur, wenn **Befehle aktivieren** an ist _und_ Zugangsdaten
+Je eine Taste pro Befehl, den die USV anbietet — angelegt nur, wenn **Sofortbefehle aktivieren** an ist _und_ Zugangsdaten
 hinterlegt sind. Ein Tastendruck schickt `INSTCMD` und setzt sich selbst zurück. Eine USV ohne Befehle bekommt keinen
 Kanal `commands`; eine Taste, deren Befehl der Treiber nicht mehr listet, wird entfernt.
 
@@ -117,7 +117,7 @@ dieselben Regeln wie für die Tasten, und der Wert ist ein einzelnes Wort.
 
 Ein Warnzeichen am Anfang der Erklärung markiert jeden Befehl, der angeschlossenen Geräten den Strom nehmen, sie
 ungeschützt lassen oder den NUT-Treiber beenden kann: die Last, eine Steckdose oder eine Steckdosengruppe abschalten
-oder neu starten, jedes `shutdown.*`, `bypass.start`, `input.off`, die Treiberbefehle, die den Treiber beenden, und das rohe
+oder neu starten, jedes `shutdown.*` außer `shutdown.stop`, `bypass.start`, `experimental.bypass.ecomode.start`, `input.off`, die Treiberbefehle, die den Treiber beenden, und das rohe
 Register-Schreiben `experimental.ve-direct.set`. Etwas
 **ein**schalten ist nie markiert.
 

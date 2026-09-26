@@ -4,7 +4,7 @@
 
 Beides, und es widerspricht sich nicht.
 
-Zum Lesen der USV-Werte braucht NUT keine Anmeldung. Die Anmeldung ist ein eigener Schritt, den der Adapter einmal beim
+Zum Lesen der USV-Werte braucht NUT keine Anmeldung. Die Anmeldung ist ein eigener Schritt, den der Adapter bei jedem (Wieder-)Verbinden
 Start auf einer kurzen zweiten Verbindung ausführt — ausschließlich, um Ihnen zu sagen, ob die Zugangsdaten
 funktionieren. Lehnt der Server sie ab, läuft die Überwachung unbeeindruckt weiter; nur das Schalten einer USV und das
 Schreiben einer Variablen werden verweigert.
@@ -76,7 +76,7 @@ nicht mehr listet, werden entfernt.
 ## Wie sende ich einen Befehl, der einen Wert braucht?
 
 Befehl und Wert in `commands.execute` schreiben, genau so, wie `upscmd` sie nimmt: `load.off.delay 120` oder
-`beeper.enable`. Es gelten dieselben Regeln wie für die Tasten — **Befehle aktivieren** an, Zugangsdaten hinterlegt, und
+`beeper.enable`. Es gelten dieselben Regeln wie für die Tasten — **Sofortbefehle aktivieren** an, Zugangsdaten hinterlegt, und
 die USV muss den Befehl anbieten. Der Wert ist ein einzelnes Wort (keine Leerzeichen, kein `#`, `=`, keine
 Anführungszeichen oder Backslashes).
 
@@ -101,30 +101,30 @@ Das ist so gewollt. Name und Beschreibung seiner Datenpunkte gehören dem Adapte
 ein Treiber- oder Adapter-Update muss sie korrigieren können. Der Platz für eigene Benennung ist `0_userdata` oder ein
 Alias.
 
-Ihre Aufzeichnungseinstellungen sind die ausdrückliche Ausnahme — die gehören Ihnen, werden nie überschrieben und
+Ihre Aufzeichnungseinstellungen und Ihre Raum- und Funktionszuordnungen sind die ausdrückliche Ausnahme — die gehören Ihnen, werden nie überschrieben und
 wandern sogar mit, wenn der Adapter einen eigenen Datenpunkt umbenennt.
 
 ## Eine USV ist aus dem Objektbaum verschwunden.
 
 Der Adapter liest die USV-Liste bei jeder Abfrage neu. Meldet der NUT-Server eine USV nicht mehr, werden ihre Objekte
-entfernt; kommt sie zurück, werden sie neu angelegt. So erscheint eine am Server hinzugefügte oder entfernte USV, ohne
+nach drei Abfragen ohne sie entfernt (beim Adapterstart sofort); kommt sie zurück, werden sie neu angelegt. So erscheint eine am Server hinzugefügte oder entfernte USV, ohne
 den Adapter neu zu starten.
 
-## Der Verbindungstest sagt „unverschlüsselt", obwohl ich TLS aktiviert habe.
+## Der Verbindungstest meldet einen TLS-Fehler, obwohl ich TLS aktiviert habe.
 
-Dann hat der Handshake nicht stattgefunden, und der Test meldet, was tatsächlich passiert ist, statt was eingestellt
-war. Die üblichen Ursachen: Der NUT-Server wurde ohne TLS-Unterstützung gebaut, oder er hat kein `CERTFILE`/`CERTPATH`
+Dann hat der Handshake nicht stattgefunden — bei eingeschaltetem TLS weicht der Adapter nie auf eine unverschlüsselte
+Verbindung aus. Die üblichen Ursachen: Der NUT-Server wurde ohne TLS-Unterstützung gebaut, oder er hat kein `CERTFILE`/`CERTPATH`
 in der `upsd.conf`. In beiden Fällen lehnt `upsd` das `STARTTLS` ab, und der Test sagt es.
 
 ## Ich habe eine CA-Datei gesetzt, dann die strenge Prüfung abgeschaltet — und der Adapter ging auf Gelb.
 
 Das war ein Fehler und ist in 0.14.0 behoben. Die CA-Datei wird jetzt nur noch gelesen, solange **Gültiges Zertifikat
-verlangen** wirklich an ist — bei abgeschalteter strenger Prüfung wird kein Zertifikat geprüft, die Datei hat also
-keine Aufgabe. Ein Pfad, der von einem früheren Versuch übrig ist, steht einmal im Debug-Log und wird sonst ignoriert.
+erfordern** wirklich an ist — bei abgeschalteter strenger Prüfung wird kein Zertifikat geprüft, die Datei hat also
+keine Aufgabe. Ein Pfad, der von einem früheren Versuch übrig ist, steht bei jedem Verbinden im Debug-Log und wird sonst ignoriert.
 
 ## Welche Werte kann ich schreiben?
 
-Alles, was Ihr USV-Treiber als schreibbar meldet (`LIST RW`), sobald **SET VAR aktivieren** an ist. Typische Kandidaten
+Alles, was Ihr USV-Treiber als schreibbar meldet (`LIST RW`), sobald **Beschreibbare Variablen aktivieren** an ist. Typische Kandidaten
 sind `ups.delay.shutdown`, `ups.delay.start` und der Signalton-Status. Wo der Server zusätzlich die erlaubten Werte
 oder einen Bereich meldet, bekommt der Datenpunkt eine Auswahlliste oder Minimum/Maximum — die Admin kann Ihnen dann
 gar nichts anbieten, was die USV ablehnen würde.

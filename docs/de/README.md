@@ -49,8 +49,8 @@ schalten (Befehle) und Variablen schreiben. Eintrag in `/etc/nut/upsd.users`:
 
 Zwei Zeilen mit verschiedenen Aufgaben:
 
-- `upsmon secondary` ist das, was eine **Anmeldung** überhaupt möglich macht. Der Adapter meldet sich einmal beim Start
-  an, auf einer kurzen zweiten Verbindung, ausschließlich um Ihnen zu sagen, ob die Zugangsdaten funktionieren. Ohne
+- `upsmon secondary` ist das, was eine **Anmeldung** überhaupt möglich macht. Der Adapter meldet sich bei jedem
+  (Wieder-)Verbinden an, auf einer kurzen zweiten Verbindung, ausschließlich um Ihnen zu sagen, ob die Zugangsdaten funktionieren. Ohne
   diese Zeile wird die Anmeldung abgelehnt — siehe die häufigen Fragen, das ist kein Fehler.
 - `actions` und `instcmds` entscheiden, was der Benutzer tatsächlich **tun** darf. `upsd` prüft sie je Befehl,
   unabhängig von der Anmeldung.
@@ -63,7 +63,7 @@ Adapter installieren, Instanz anlegen, Reiter **Verbindung** ausfüllen:
 
 | Einstellung           | Was hineingehört                                                                                          |
 | --------------------- | --------------------------------------------------------------------------------------------------------- |
-| NUT-Server-Adresse    | Hostname oder IP des Rechners, auf dem `upsd` läuft                                                       |
+| NUT-Server-Host       | Hostname oder IP des Rechners, auf dem `upsd` läuft                                                       |
 | Port                  | `3493`, sofern nicht geändert                                                                             |
 | Netzwerkschnittstelle | Auf „alle" lassen, außer der ioBroker-Host hängt in mehreren Netzen und nur eines erreicht den NUT-Server |
 | Abfrageintervall      | `15` Sekunden sind ein guter Ausgangswert — siehe unten                                                   |
@@ -78,8 +78,8 @@ Danach speichern. Der Adapter verbindet sich, erkennt jede USV am Server und leg
 
 Schneller als der NUT-Treiber seine Daten auffrischt, bringt nichts. In `/etc/nut/ups.conf` hat der Treiber zwei
 Einstellungen: `pollinterval` (wie oft der Status aufgefrischt wird, Vorgabe 2 s) und `pollfreq` (der ganze Wertesatz,
-Vorgabe 30 s bei USB-Treibern). Alle 15 Sekunden ist ein sinnvoller Mittelweg; unter 2 Sekunden liest der Adapter nur
-noch Werte erneut, die sich nicht geändert haben.
+Vorgabe 30 s bei USB-Treibern). Alle 15 Sekunden ist ein sinnvoller Mittelweg; deshalb beginnt die Einstellung bei 2 Sekunden —
+schneller würde nur Werte erneut lesen, die sich nicht geändert haben.
 
 Wer von einem Stromausfall _im Moment des Geschehens_ erfahren will statt beim nächsten Abruf, senkt nicht das
 Intervall, sondern nutzt die Ereignis-Klingel aus den häufigen Fragen.
@@ -95,7 +95,7 @@ TLS-Unterstützung gebaut werden und bietet dann **STARTTLS**:
 In der Voreinstellung prüft der Adapter das Zertifikat nicht — das verschlüsselt gegen Mitlesen, erkennt aber keinen
 Mann-in-der-Mitte, weil fast jeder NUT-Server ein selbstsigniertes Zertifikat verwendet.
 
-Für echten Schutz zusätzlich **Gültiges Zertifikat verlangen** anhaken und bei **CA-Zertifikatsdatei** eine PEM-Datei
+Für echten Schutz zusätzlich **Gültiges Zertifikat erfordern** anhaken und bei **CA-Zertifikatsdatei** eine PEM-Datei
 auf dem ioBroker-Host angeben, gegen die geprüft werden kann — die eigene Zertifizierungsstelle oder das
 selbstsignierte Serverzertifikat selbst. Die Datei wird nur gelesen, solange die strenge Prüfung an ist; ein Pfad, der
 von einem früheren Versuch übrig geblieben ist, schadet nicht.
@@ -106,11 +106,11 @@ Wurde der NUT-Server ohne TLS gebaut, sagt der Verbindungstest das, statt still 
 
 Zwei Schalter im Reiter **Erweitert** öffnen die Schreibrichtung, beide sind bewusst aus:
 
-- **Befehle aktivieren** legt je Befehl, den die USV anbietet, eine Taste an (Signalton, Selbsttest, Last abschalten …).
+- **Sofortbefehle aktivieren** legt je Befehl, den die USV anbietet, eine Taste an (Signalton, Selbsttest, Last abschalten …).
   Der Kanal `commands` erscheint erst, wenn das an ist **und** Zugangsdaten hinterlegt sind — `upsd` prüft
   Befehlsrechte gegen einen benannten Benutzer. Sein Text-Datenpunkt `commands.execute` führt einen Befehl mit Wert
   aus, etwa `load.off.delay 120`.
-- **SET VAR aktivieren** macht die USV-Variablen, die der Server als schreibbar meldet, auch in ioBroker schreibbar.
+- **Beschreibbare Variablen aktivieren** macht die USV-Variablen, die der Server als schreibbar meldet, auch in ioBroker schreibbar.
 
 Beides braucht die passenden Rechte in der `upsd.users` (Schritt 3). Mit den Last-Befehlen vorsichtig umgehen:
 `load.off` nimmt allem den Strom, was an der USV hängt.

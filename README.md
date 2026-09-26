@@ -14,12 +14,12 @@ NUT support in ioBroker goes back to [Apollon77](https://github.com/Apollon77)'s
 
 ## Features
 
-- Automatic discovery of all UPS devices on a NUT server via `LIST UPS` — also while running: a UPS added to or removed from the server shows up (or disappears) at the next poll
+- Automatic discovery of all UPS devices on a NUT server via `LIST UPS` — also while running: a UPS added to the server shows up at the next poll, a removed one disappears after three polls without it
 - Dynamic state creation from `LIST VAR` — whatever your UPS reports appears as ioBroker states
 - Proper data types: numeric values as numbers (not strings), with units (V, Hz, A, Ah, %, W, VA, s, min, °C, °)
-- Parsed `ups.status` flags as individual booleans (online, onBattery, lowBattery, charging, ...) plus computed severity (0–4)
+- Parsed `ups.status` flags as individual booleans (online, onBattery, lowBattery, charging, ...) plus computed severity (0–4, empty when the status names no power source)
 - Every device shows a pictogram for its NUT device type (UPS, PDU, solar charge controller, power supply, transfer switch) in the object tree
-- Every data point comes with a short explanation, and status texts, severity levels and selection lists appear in your ioBroker language (11 languages)
+- Every data point whose name does not already say it all comes with a short explanation, and status texts, severity levels and selection lists appear in your ioBroker language (11 languages)
 - Instant commands (INSTCMD) via button states — beeper control, load management, self-test — plus one text data point for commands that take a value, such as a delay
 - When the NUT server tracks commands, the adapter reports whether the driver really carried out a command or a new setting
 - Writable variables (SET VAR) — change UPS settings directly from ioBroker
@@ -55,11 +55,11 @@ For details and how to disable it, see the [Sentry plugin documentation](https:/
 
 | Option                        | Description                                                                                                                                            | Default |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | ------- |
-| **NUT Server Host**           | Hostname or IP address of the NUT server                                                                                                               | —       |
+| **NUT server host**           | Hostname or IP address of the NUT server                                                                                                               | —       |
 | **Port**                      | NUT server port                                                                                                                                        | `3493`  |
-| **Network Interface**         | Bind outgoing connections to a specific local IP (optional)                                                                                            | all     |
-| **Poll Interval (s)**         | How often to query the NUT server (2–300)                                                                                                              | `15`    |
-| **Username**                  | NUT username (optional — needed for commands and writable variables; the adapter also verifies it once at startup)                                     | —       |
+| **Network interface**         | Bind outgoing connections to a specific local IP (optional)                                                                                            | all     |
+| **Poll interval (s)**         | How often to query the NUT server (2–300)                                                                                                              | `15`    |
+| **Username**                  | NUT username (optional — needed for commands and writable variables; the adapter also verifies it at every (re)connect)                                | —       |
 | **Password**                  | NUT password                                                                                                                                           | —       |
 | **Use TLS (STARTTLS)**        | Encrypt the connection via STARTTLS                                                                                                                    | off     |
 | **Require valid certificate** | Reject self-signed/invalid certificates (only shown when TLS is on)                                                                                    | off     |
@@ -70,7 +70,7 @@ and password it also logs in and out again, so the result tells you whether the 
 the connection is encrypted.
 
 **About the credentials:** the NUT server only _stores_ a username and password when they are sent — it checks them
-when a client logs in. The adapter therefore logs in once at startup, on a short extra connection that is closed again,
+when a client logs in. The adapter therefore logs in at every (re)connect, on a short extra connection that is closed again,
 purely to tell you whether the credentials work; the connection test does the same on demand. A login needs an
 `upsmon secondary` (or `upsmon primary`) line for that user in the server's `upsd.users`.
 
@@ -85,11 +85,11 @@ its machine down, so a monitoring client sitting in that count would delay the s
 
 ### Advanced
 
-| Option                  | Description                                         | Default |
-| ----------------------- | --------------------------------------------------- | ------- |
-| **Command Timeout (s)** | Timeout for individual NUT protocol commands (1–30) | `5`     |
-| **Enable Commands**     | Allow sending instant commands (INSTCMD) to the UPS | off     |
-| **Enable SET VAR**      | Allow changing writable UPS variables               | off     |
+| Option                        | Description                                         | Default |
+| ----------------------------- | --------------------------------------------------- | ------- |
+| **Command timeout (s)**       | Timeout for individual NUT protocol commands (1–30) | `5`     |
+| **Enable instant commands**   | Allow sending instant commands (INSTCMD) to the UPS | off     |
+| **Enable writable variables** | Allow changing writable UPS variables               | off     |
 
 Both command features require a NUT user with appropriate permissions configured on the NUT server.
 
@@ -237,7 +237,7 @@ Any write to `nut2.0.notify` triggers an immediate poll of all UPS devices; an e
 
 ### Commands not working
 
-- Ensure **Enable Commands** is checked in the Advanced tab
+- Ensure **Enable instant commands** is checked in the Advanced tab
 - A NUT username and password with `instcmds` permission must be configured
 - Check the NUT server's `upsd.users` configuration
 - A UPS whose driver offers no instant commands gets no `commands` channel at all (`upscmd -l <ups>` on the server lists them)
@@ -245,13 +245,13 @@ Any write to `nut2.0.notify` triggers an immediate poll of all UPS devices; an e
 
 ### Writable variables not working
 
-- Ensure **Enable SET VAR** is checked in the Advanced tab
+- Ensure **Enable writable variables** is checked in the Advanced tab
 - The NUT user needs `actions = SET` permission on the NUT server
 
 ### States not updating
 
 - Check `info.connection` — if `false`, the connection to the NUT server is down (rejected credentials do not affect it)
-- Check the ioBroker log for NUT error codes (e.g. `DATA-STALE` means the UPS driver lost contact)
+- Check `{ups_name}.info.reachable` — it is `false` while the NUT driver reports stale data or is not connected (the log mentions that at debug level only)
 - Verify the poll interval is appropriate for your setup
 
 ---

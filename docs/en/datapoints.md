@@ -4,7 +4,7 @@ The adapter does not ship a fixed list of states. It asks the NUT server what yo
 the tree from the answer, so two different UPS models produce two different trees. What follows explains the parts that
 are always the same, and how a NUT variable turns into an ioBroker state.
 
-Every data point carries a short explanation in `common.desc`, and value lists, status texts and severity levels appear
+Every data point whose name does not already say it all carries a short explanation in `common.desc`, and value lists, status texts and severity levels appear
 in your ioBroker system language.
 
 ## From a NUT name to a state ID
@@ -52,7 +52,7 @@ splits it:
 | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `raw`       | The original string, unchanged.                                                                                                                                                                                            |
 | `display`   | The same information as readable text in your language, e.g. "On line power, Charging".                                                                                                                                    |
-| `severity`  | A single number, 0–4 (see below).                                                                                                                                                                                          |
+| `severity`  | A single number, 0–4, or empty (see below).                                                                                                                                                                                |
 | 19 booleans | One per known status flag: `online`, `onBattery`, `lowBattery`, `charging`, `discharging`, `replaceBattery`, `overloaded`, `bypass`, `calibrating`, `forcedShutdown`, `alarm`, `ecoMode`, `testing`, `overheat`, and more. |
 
 `charging` and `discharging` are also filled from `battery.charger.status`, because some UPS models report the charge
@@ -105,7 +105,7 @@ be useful.
 
 ### `commands`
 
-One button per instant command the UPS offers, created only when **Enable commands** is on _and_ credentials are
+One button per instant command the UPS offers, created only when **Enable instant commands** is on _and_ credentials are
 configured. Pressing a button sends `INSTCMD` and resets itself. A UPS that offers no command gets no `commands`
 channel; a button whose command the driver no longer lists is removed.
 
@@ -114,7 +114,7 @@ rules apply as for the buttons, and the value is a single word.
 
 A warning sign at the start of the explanation marks every command that can take power away from the connected
 equipment, leave it unprotected or stop the NUT driver: switching the load, an outlet or an outlet group off or
-restarting it, every `shutdown.*`, `bypass.start`, `input.off`, the driver commands that end the driver and the raw register write
+restarting it, every `shutdown.*` except `shutdown.stop`, `bypass.start`, `experimental.bypass.ecomode.start`, `input.off`, the driver commands that end the driver and the raw register write
 `experimental.ve-direct.set`. Switching
 something **on** is never marked.
 

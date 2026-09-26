@@ -49,7 +49,7 @@ writing variables. Add it to `/etc/nut/upsd.users`:
 
 Two lines with different jobs:
 
-- `upsmon secondary` is what makes a **login** possible. The adapter uses a login once at startup, on a short extra
+- `upsmon secondary` is what makes a **login** possible. The adapter uses a login at every (re)connect, on a short extra
   connection, purely to tell you whether the credentials work. Without this line the login is refused — see the FAQ,
   it is not an error.
 - `actions` and `instcmds` decide what the user may actually **do**. `upsd` checks them per command, independently of
@@ -78,8 +78,8 @@ Then save. The adapter connects, discovers every UPS on the server and creates t
 
 Faster than the NUT driver refreshes its data buys you nothing. In `/etc/nut/ups.conf` the driver has two settings:
 `pollinterval` (how often the status is refreshed, default 2 s) and `pollfreq` (the full set of values, default 30 s
-for USB drivers). Polling every 15 seconds is a sensible middle ground; below 2 seconds the adapter simply re-reads
-values that have not changed.
+for USB drivers). Polling every 15 seconds is a sensible middle ground; that is why the setting starts at 2 seconds —
+faster would only re-read values that have not changed.
 
 If you want to know about a power failure _the instant it happens_ rather than at the next poll, do not lower the
 interval — use the event trigger described in the FAQ.
@@ -106,11 +106,11 @@ If the NUT server was built without TLS, the connection test says so instead of 
 
 Two switches on the **Advanced** tab open the write direction, and both are off on purpose:
 
-- **Enable commands** creates a button state per instant command the UPS offers (beeper, self-test, load off …).
+- **Enable instant commands** creates a button state per instant command the UPS offers (beeper, self-test, load off …).
   The `commands` channel only appears once this is on **and** credentials are configured — `upsd` checks command
   rights against a named user. Its text data point `commands.execute` runs a command that takes a value, such as
   `load.off.delay 120`.
-- **Enable SET VAR** makes the UPS variables that the server reports as writable writable in ioBroker too.
+- **Enable writable variables** makes the UPS variables that the server reports as writable writable in ioBroker too.
 
 Both need the matching rights in `upsd.users` (step 3). Handle the load commands with care: `load.off` cuts the power
 to everything plugged into the UPS.
